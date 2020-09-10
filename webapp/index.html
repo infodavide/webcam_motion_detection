@@ -1,0 +1,207 @@
+<html lang="fr-FR">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Webcam motion detection</title>
+<meta name="robots" content="noindex,follow">
+<link rel="icon" type="image/ico" href="favicon.ico">
+<link href="css/external/bootstrap.min.css" rel="stylesheet" id="bootstrap-css">
+<script src="js/external/jquery-3.3.1.min.js"></script>
+<script src="js/external/popper.min.js"></script>
+<script src="js/external/bootstrap.min.js"></script>
+<script src="js/external/jquery-ui.min.js"></script>
+<script src="js/external/jquery.timeago.js"></script>
+<link href="css/external/jquery-ui.min.css" rel="stylesheet" />
+<script src="js/external/jquery.blockUI.js"></script>
+<link href="css/external/bootstrap-toggle.min.css" rel="stylesheet">
+<script src="js/external/bootstrap-toggle.min.js"></script>
+<script src="js/external/js.cookie.js"></script>
+<script src="js/external/jquery.download.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/app.js" type="text/javascript"></script>
+<script src="js/external/md5.js" type="text/javascript"></script>
+<script src="js/main.js" type="text/javascript"></script>
+<script src="js/form.js" type="text/javascript"></script>
+<script src="js/authentication.js" type="text/javascript"></script>
+<script src="js/controller.js" type="text/javascript"></script>
+<script src="js/home.js" type="text/javascript"></script>
+<script src="js/setting.js" type="text/javascript"></script>
+</head>
+<body>
+  <div id="login_modal" class="modal fullscreen fade" role="dialog">
+    <div class="modal-dialog modal-login modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4 class="modal-title">User Login</h4>
+          <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="signin_form" onsubmit="login('login_modal');return false;">
+            <div class="form-group">
+              <i class="fa fa-user"></i> <input type="text" id="signin_username" oninput="clearCustomValidity('signin_form');" autocomplete="name"
+                class="form-control" placeholder="Username" required="required">
+            </div>
+            <div class="form-group">
+              <i class="fa fa-lock"></i> <input type="password" id="signin_password" oninput="clearCustomValidity('signin_form');"
+                autocomplete="current-password" class="form-control" placeholder="Password" required="required">
+            </div>
+            <div class="form-group">
+              <i class="fa fa-user"></i> <input type="checkbox" id="signin_rememberMe"> <label for="signin_rememberMe">Remember me</label>
+            </div>
+            <div class="form-group">
+              <input id="signin_login" type="submit" class="btn btn-primary btn-block btn-lg" value="Login">
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <a href="#" onclick="sendPassword('login_modal')">Forgot Password?</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="account_details_modal" class="modal fullscreen fade" role="dialog">
+    <div class="modal-dialog modal-account-details">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4 class="modal-title">User account</h4>
+          <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+        </div>
+        <div class="modal-body" id="account_details_content"></div>
+      </div>
+    </div>
+  </div>
+  <div id="confirmation_modal" class="modal fullscreen fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-confirm-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h4 class="modal-title" id="confirmation_modal_title">Confirmation</h4>
+          <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+        </div>
+        <div class="modal-body" id="confirmation_modal_message">
+          <p>No message set</p>
+        </div>
+        <div class="modal-footer">
+          <input id="btn_cancel_confirmation" type="button" class="btn btn-cancel btn-primary btn-block btn-lg" value="Cancel" data-dismiss="modal"><input
+            id="btn_submit_confirmation" type="submit" class="btn btn-danger btn-ok btn-primary btn-block btn-lg" value="Ok">
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+      $("#confirmation_modal").on(
+          "show.bs.modal",
+          function(e) {
+            var callback = $(e.relatedTarget).data("callback");
+            var cancelCallback = $(e.relatedTarget).data("cancel-callback");
+            if (!callback || 0 === callback.length) {
+              return;
+            }
+            $(e.relatedTarget).data("callback", "");
+            var okButton = $(this).find(".btn-ok");
+            var cancelButton = $(this).find(".btn-cancel");
+            var closeButton = $("#confirmation_modal").find(".close");
+            okButton.unbind("click");
+            okButton.click(function() {
+              eval(callback);
+              closeButton.unbind("click");
+              closeButton.click();
+            });
+            cancelButton.click(function() {
+              if (cancelCallback && 0 !== cancelCallback.length) {
+                eval(cancelCallback);
+              }
+            });
+            closeButton.click(function() {
+              if (cancelCallback && 0 !== cancelCallback.length) {
+                eval(cancelCallback);
+              }
+            });
+            $("#confirmation_modal_title").html(
+                $(e.relatedTarget).data("title"));
+            $("#confirmation_modal_message").html(
+                "<p>" + $(e.relatedTarget).data("message")
+                    + "</p>");
+          });
+    </script>
+  <div id="wrapper">
+    <nav class="navbar navbar-inverse navbar-fixed-top" id="sidebar_wrapper" role="navigation">
+      <ul class="nav sidebar-nav">
+        <li class="sidebar-brand"><a href="#"> Webcam detection </a></li>
+        <li><a href="#" id="sb_mni_home" onclick="showContent('home')">Home</a></li>
+        <li><a href="#" id="sb_mni_help" onclick="showContent('help')">Help</a></li>
+        <li><a href="#" id="sb_mni_settings" onclick="showContent('settings')">Settings</a></li>
+        <li><a href="https://www.infodavid.org" target="blank">Our website</a></li>
+      </ul>
+    </nav>
+    <div class="content">
+      <button type="button" id="btn_hamburger" class="hamburger is-closed" data-toggle="offcanvas">
+        <span class="hamb-top"></span> <span class="hamb-middle"></span> <span class="hamb-bottom"></span>
+      </button>
+      <div id="menubar_wrapper">
+        <div id="menubar_left_spacer"></div>
+        <div class="row menu btn-group">
+          <div class="column col-lg-10 my-auto">
+            <div class="row">
+              <div class="column col-auto d-none d-lg-block d-xl-block my-auto">
+                <div class="menu-item clickable" id="mni_system" onclick="showContent('system')" title="View system status">CPU: <span id="system_status"></span>
+                </div>
+                <div class="menu-item clickable" id="mni_disk" onclick="showContent('disk')" title="View disk status">Disk: <span id="storage_status"></span>
+                </div>
+                <div class="menu-item clickable" id="mni_memory" onclick="showContent('memory')" title="View memory status">Memory: <span id="memory_status"></span>
+                </div>
+              </div>
+              <div class="column col-auto menu-item d-none d-lg-block d-xl-block my-auto">
+                <span class="clickable" onclick="loadHealth(true)" title="Refresh manually the health data">Refresh:</span>
+                <div class="dropdown" style="display: inline-block">
+                  <a class="btn btn-secondary dropdown-toggle" href="#" role="button" id="mni_refresh_value" data-toggle="dropdown"
+                    aria-haspopup="true" aria-expanded="false" style="padding-top: 2px !important;" title="Set the refresh time in seconds"><span id="refresh_time"></span></a>
+                  <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                    <a class="dropdown-item" href="#" onclick="setRefreshTime(600)">10min</a> <a class="dropdown-item" href="#"
+                      onclick="setRefreshTime(300)">5min</a> <a class="dropdown-item" href="#" onclick="setRefreshTime(120)">2min</a> <a
+                      class="dropdown-item" href="#" onclick="setRefreshTime(60)">1min</a> <a class="dropdown-item" href="#"
+                      onclick="setRefreshTime(30)">30s</a> <!-- <a class="dropdown-item" href="#" onclick="setRefreshTime(-1)">Disabled</a>  -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="column col-lg-2 justify-content-end d-flex my-auto">
+            <div class="menu-item clickable" id="mni_login" data-toggle="modal" data-target="#login_modal" title="Sign in">Sign in</div>
+            <div id="div_account" class="dropdown" style="display: none">
+              <a class="btn btn-secondary dropdown-toggle" href="#" role="button" id="mni_user_account" data-toggle="dropdown" aria-haspopup="true"
+                aria-expanded="false" style="padding-top: 2px !important;" title="User account"><span id="user_display_name"></span></a>
+              <div class="dropdown-menu dropdown-menu-right" aria-labelledby="dropdownMenuButton">
+                <a class="dropdown-item" id="show_user_account_details" href="#" onclick="editUserAccount()" title="Account details">Account
+                  details</a> <a class="dropdown-item" id="signout" href="#" onclick="logout()">Disconnect</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="height: 40px;"></div>
+        <div id="alert_messages">
+          <div id="alert_message_template" class="alert alert-dismissible" style="display: none;">
+            <a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>
+            <div class="row" style="border-width: 0;">
+              <div class="col-sm-2" title="Icon">
+                <span class="icon warning-icon"></span>
+                <span style="font-size: small;"><time class="timeago"></time></span>
+              </div>
+              <div class="col-sm-10 message" title="Alert message" style="text-overflow: ellipsis; overflow: hidden;"></div>
+            </div>
+          </div>
+        </div>
+        <div id="content" class="container"></div>
+        <div style="height: 40px;"></div>
+      </div>
+    </div>
+    <footer class="footer">
+      <div class="container">
+        <span class="footer-icon"></span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
