@@ -3,18 +3,16 @@
 import atexit
 import cv2
 import datetime
-import glob
 import nmap
 import os
-import sched
-import shutil
 import signal
 import subprocess
 import smtplib
 import sys
 import threading
 import time
-import zipfile
+import traceback
+import zipstream
 
 from datetime import datetime
 from email.mime.application import MIMEApplication
@@ -23,6 +21,9 @@ from email.mime.text import MIMEText
 
 # Constants
 TIME_FORMAT = '%H:%M'
+CAPTURE_DELAY = 0.2
+CAPTURE_CONTOUR = 25000
+MAX_IMAGES = 10
 
 
 def find_ip_v4():
@@ -37,9 +38,18 @@ class ObjectView(object):
         self.__dict__ = d
 
     """ Returns the string representation of the view """
-
     def __str__(self):
         return str(self.__dict__)
+
+
+class ImageItem(object):
+    def __init__(self, basename, data):
+        self.basename = basename
+        self.data = data
+
+    """ Returns the string representation of the view """
+    def __str__(self):
+        return str(self.basename)
 
 
 class WebcamMotionDetector(object):
@@ -47,6 +57,9 @@ class WebcamMotionDetector(object):
     __last_detection = None
     # Video capture
     __frame = None
+    __frame_lock = threading.Lock()
+    __images = list()
+    __images_lock = threading.Lock()
     # Status flags
     activated = False
     suspended = True
@@ -77,16 +90,30 @@ class WebcamMotionDetector(object):
                 self.__times_on[int(fields[0])].append([datetime.strptime(fields[1], TIME_FORMAT).time(),
                                                         datetime.strptime(fields[2], TIME_FORMAT).time()])
         self.__video = cv2.VideoCapture(int(self.__config.VIDEO_DEVICE))
-        if not self.__video:
+        if not self.__video or not self.__video.isOpened():
             raise Exception('Device is not valid: ' + self.__config.VIDEO_DEVICE)
         self.__video.setExceptionMode(enable=True)
-        self.__frame_lock = threading.Lock()
-        # Scheduler
-        self.__scheduler = sched.scheduler(time.time, time.sleep)
+        self.logger.info('Motion detector configured')
         self.__check_activated()
         self.__check_suspended()
 
     def __del__(self):
+        print('Destroying motion detector...')
+        try:
+            if self.__check_activated_task:
+                self.__check_activated_task.cancel()
+        except Exception as e:
+            print('Cannot stop __check_activated_task: %s' % e, file=sys.stderr)
+        try:
+            if self.__check_suspended_task:
+                self.__check_suspended_task.cancel()
+        except Exception as e:
+            print('Cannot stop __check_suspended_task: %s' % e, file=sys.stderr)
+        try:
+            if self.__capture_task:
+                self.__capture_task.cancel()
+        except Exception as e:
+            print('Cannot stop __capture_task: %s' % e, file=sys.stderr)
         try:
             if self.__video:
                 # Release video device
@@ -95,7 +122,7 @@ class WebcamMotionDetector(object):
                 # Destroying all the windows
                 cv2.destroyAllWindows()
         except Exception as e:
-            self.logger.error('Cannot stop service: %s' % e, file=sys.stderr)
+            print('Cannot stop video: %s' % e, file=sys.stderr)
 
     def __notify(self, message=None):
         if not self.__config.SMTP_SERVER or not self.__config.SMTP_PORT:
@@ -105,18 +132,16 @@ class WebcamMotionDetector(object):
             self.logger.warn('No email address specified, skipping email notification')
             return
         parts = []
-        for file_path in glob.glob(self.__config.TMP_DIR + os.sep + '*.jpg'):
-            if file_path == self.__config.CAPTURE_FILE:
-                continue
-            basename: str = os.path.basename(file_path)
-            with open(file_path, "rb") as file:
-                part = MIMEApplication(
-                    file.read(),
-                    Name=basename
-                )
-            part['Content-Disposition'] = 'attachment; filename="%s"' % basename
+        with self.__images_lock:
+            images = self.__images.copy()
+            self.__images.clear()
+        for image in images:
+            part = MIMEApplication(
+                image.data,
+                Name=image.basename
+            )
+            part['Content-Disposition'] = 'attachment; filename="%s"' % image.basename
             parts.append(part)
-            os.unlink(file_path)
         if len(parts) == 0:
             return
         self.logger.info('Sending email to ' + self.__config.SMTP_TO)
@@ -139,16 +164,15 @@ class WebcamMotionDetector(object):
             mt['To'] = self.__config.SMTP_TO
             msg.attach(mt)
             if self.__log_file_path is not None:
-                log_zip_file_path: str = self.__log_file_path + '.zip'
-                basename: str = os.path.basename(log_zip_file_path)
-                with zipfile.ZipFile(log_zip_file_path, 'w') as zf:
-                    zf.write(self.__log_file_path)
-                with open(log_zip_file_path, "rb") as file:
+                basename: str = os.path.basename(self.__log_file_path + '.zip')
+                zipfile = zipstream.ZipFile()
+                zipfile.write(self.__log_file_path, os.path.basename(self.__log_file_path))
+                part = None
+                for data in zipfile:
                     part = MIMEApplication(
-                        file.read(),
+                        data,
                         Name=basename
                     )
-                os.unlink(log_zip_file_path)
                 part['Content-Disposition'] = 'attachment; filename="%s"' % basename
                 msg.attach(part)
             for part in parts:
@@ -172,11 +196,15 @@ class WebcamMotionDetector(object):
                 if rng[0] <= t <= rng[1]:
                     r = True
                     break
+        if self.activated != r:
+            self.logger.info('activated: ' + str(r) + ', suspended: ' + str(self.suspended))
         self.activated = r
         self.logger.debug('activated: ' + str(self.activated) + ', suspended: ' + str(self.suspended))
         if self.activated and not self.suspended:
             self.start()
-        self.__check_activated_task = self.__scheduler.enter(60, 1, self.__check_activated, ())
+        self.__check_activated_task = threading.Timer(60, self.__check_activated)
+        self.__check_activated_task.start()
+        self.logger.debug('Check activated scheduled...' + repr(self.__check_activated_task))
 
     def __check_suspended(self):
         self.logger.debug('Checking if suspended by detection of a secure device on the network...')
@@ -197,11 +225,15 @@ class WebcamMotionDetector(object):
                         else:
                             self.logger.warn('Suspended forced to false (see configuration and TEST property')
                         break
+        if self.suspended != r:
+            self.logger.info('activated: ' + str(self.activated) + ', suspended: ' + str(r))
         self.suspended = r
         self.logger.debug('activated: ' + str(self.activated) + ', suspended: ' + str(self.suspended))
         if not self.suspended and self.activated:
             self.start()
-        self.__check_suspended_task = self.__scheduler.enter(60, 1, self.__check_suspended, ())
+        self.__check_suspended_task = threading.Timer(60, self.__check_suspended)
+        self.__check_suspended_task.start()
+        self.logger.debug('Check suspended scheduled...' + repr(self.__check_suspended_task))
 
     def __capture(self):
         self.logger.info('Starting capture...')
@@ -212,12 +244,14 @@ class WebcamMotionDetector(object):
             while self.activated and not self.suspended:
                 now: datetime.datetime = datetime.now()
                 # Reading frame(image) from video
+                check, frame = self.__video.read()
                 with self.__frame_lock:
-                    check, self.__frame = self.__video.read()
+                    # Reset the JPEG image associated to the previous frame
+                    self.__frame = frame
                 # Initializing motion = 0(no motion)
                 motion: bool = False
                 # Converting color image to gray_scale image
-                gray = cv2.cvtColor(self.__frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 # Converting gray scale image to GaussianBlur so that change can be find easily
                 gray = cv2.GaussianBlur(gray, (21, 21), 0)
                 # In first iteration we assign the value of static_back to our first frame
@@ -232,46 +266,56 @@ class WebcamMotionDetector(object):
                 # Finding contour of moving object
                 contours, _ = cv2.findContours(thresh_frame.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 for contour in contours:
-                    if cv2.contourArea(contour) > 25000:
+                    if cv2.contourArea(contour) > CAPTURE_CONTOUR:
                         motion = True
                         (x, y, w, h) = cv2.boundingRect(contour)
                         # making green rectangle around the moving object
-                        cv2.rectangle(self.__frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
                         break
                 if motion and (self.__last_detection is None or (now - self.__last_detection).total_seconds() > 1):
-                    filename: str = self.__config.TMP_DIR + os.sep + 'webcam_motion_detection-' + str(now) + '.jpg'
-                    self.logger.info('Motion detected adn stored to ' + filename)
-                    cv2.imwrite(filename, self.__frame)
-                    shutil.copy(filename, self.__config.CAPTURE_FILE)
+                    image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', bytearray(self.__frame))
+                    with self.__images_lock:
+                        while len(self.__images) > MAX_IMAGES:
+                            self.__images.pop(0)
+                        self.__images.append(image)
+                    self.logger.info('Motion detected and stored to ' + image.basename)
                     self.__last_detection = now
                     static_back = gray
                 if self.__last_detection and (now - self.__last_detection).total_seconds() > int(self.__config.NOTIFICATION_DELAY):
-                    self.__notify('Motion detected using ' + self.__config.VIDEO_DEVICE_NAME)
+                    task = threading.Timer(0, self.__notify, args=['Motion detected using ' + self.__config.VIDEO_DEVICE_NAME])
+                    task.start()
                 if self.__config.GRAPHICAL:
-                    cv2.imshow("Color Frame", self.__frame)
+                    cv2.imshow("Color Frame", frame)
                 key = cv2.waitKey(1)
                 # if q entered process will stop
                 if key == ord('q'):
                     self.logger.info('Stopping...')
-                    self.__scheduler.cancel(self.__check_activated_task)
-                    self.__scheduler.cancel(self.__check_suspended_task)
+                    if self.__check_activated_task:
+                        self.__check_activated_task.cancel()
+                    if self.__check_suspended_task:
+                        self.__check_suspended_task.cancel()
                     break
+                time.sleep(CAPTURE_DELAY)
         except Exception as e:
             self.logger.error('Stopping after failure: ' + repr(e))
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=6, file=sys.stderr)
             if self.__check_activated_task:
-                self.__scheduler.cancel(self.__check_activated_task)
+                self.__check_activated_task.cancel()
             if self.__check_suspended_task:
-                self.__scheduler.cancel(self.__check_suspended_task)
+                self.__check_suspended_task.cancel()
         self.logger.info('Stopping capture...')
         self.__capture_task = None
 
     def start(self):
         self.logger.info('Start triggered')
         if self.__capture_task is None:
-            self.__capture_task = self.__scheduler.enter(0, 1, self.__capture, ())
+            self.__capture_task = threading.Timer(1, self.__capture)
+            self.__capture_task.start()
+            self.logger.debug('Capture scheduled...' + repr(self.__capture_task))
         else:
             self.logger.info('Capture already running...')
 
-    def get_frame(self):
+    def get_image(self):
         with self.__frame_lock:
-            return self.__frame.copy()
+            return self.__frame

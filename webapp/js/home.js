@@ -2,6 +2,8 @@
 class HomeController{
      /* initialize the main view */
   init(){
+    content = '<div id="video"><img style="-webkit-user-select: none;" src="' + BASE_URL + '/video" width="1037" height="583"/></div>';
+    $('#content').html(content);
   }
 }
 const homeController=new HomeController();

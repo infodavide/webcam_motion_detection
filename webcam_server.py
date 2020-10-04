@@ -16,6 +16,7 @@ import signal
 import shutil
 import sys
 import time
+import traceback
 
 from logging.handlers import RotatingFileHandler
 from webcam_motion_detector import WebcamMotionDetector
@@ -35,6 +36,7 @@ config = None
 logger = None
 root_path = None
 motion_detector = None
+no_image_available = None
 
 
 def create_rotating_log(path):
@@ -63,7 +65,7 @@ def create_rotating_log(path):
 
 
 def configure():
-    global config, logger, root_path, motion_detector
+    global config, logger, root_path, motion_detector, no_image_available
     config_parser = configparser.ConfigParser()
     config_parser.optionxform = str
     config_parser.read(str(pathlib.Path(__file__).parent) + os.sep + 'webcam_motion_detection.conf')
@@ -75,26 +77,37 @@ def configure():
     logger.info('Configuring...')
     atexit.register(shutdown)
     signal.signal(signal.SIGINT, shutdown)
-    motion_detector = WebcamMotionDetector(logger, config)
+    try:
+        motion_detector = WebcamMotionDetector(logger, config)
+    except Exception as e:
+        logger.error(e)
+        sys.exit(1)
+    is_success, image_buffer = cv2.imencode('.jpg', cv2.imread(root_path + '/images/no-image-available.jpg'))
+    if is_success:
+        no_image_available = image_buffer.tobytes()
+    else:
+        logger.error("no-image-available.jpg is missing")
+        print("no-image-available.jpg is missing")
+        sys.exit(1)
 
 
 def shutdown():
     global web_server
-    web_server.terminate()
-    web_server.join()
+    if globals().get('web_server'):
+        web_server.terminate()
+        web_server.join()
 
 
 def get_video():
-    global motion_detector
+    global motion_detector, logger, root_path, no_image_available
     while True:
+        time.sleep(0.3)
         # noinspection PyUnresolvedReferences
-        frame = motion_detector.get_frame()
-        if frame is None:
-            continue
-        (flag, encodedImage) = cv2.imencode(".jpg", frame)
-        if not flag:
-            continue
-        yield b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + bytearray(encodedImage) + b'\r\n'
+        image = motion_detector.get_image()
+        array = no_image_available
+        if image:
+            array = bytearray(image)
+        yield b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + array + b'\r\n'
 
 
 configure()
@@ -137,6 +150,7 @@ def send_home():
 
 @webapp.route('/rest/app/health', methods=["GET"])
 def rest_app_health():
+    global logger
     result = dict()
     disks = []
     storage_status = 0
@@ -183,8 +197,11 @@ def rest_app_health():
     return flask.jsonify(result)
 
 
-@webapp.route("/video")
-def video():
+@webapp.route("/video", methods=['GET'])
+def send_video():
+    global logger
+    # noinspection PyUnresolvedReferences
+    logger.debug('Streaming video...')
     return flask.Response(get_video(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
