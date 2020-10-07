@@ -16,10 +16,9 @@ import signal
 import shutil
 import sys
 import time
-import traceback
 
 from logging.handlers import RotatingFileHandler
-from webcam_motion_detector import WebcamMotionDetector
+from webcam_motion_detector import WebcamMotionDetector, ImageListener
 
 
 class ObjectView(object):
@@ -32,29 +31,54 @@ class ObjectView(object):
         return str(self.__dict__)
 
 
-config = None
-logger = None
-root_path = None
-motion_detector = None
-no_image_available = None
+class ConcreteImageListener(ImageListener):
+
+    def __init__(self):
+        super().__init__()
+        self.__lock = multiprocessing.RLock()
+        self._image: bytes = b''
+
+    def on_image(self, image: bytearray) -> None:
+        #with self.__lock:
+        self._image = image.copy()
+        print('set ' + repr(self))
+
+    def get_image(self) -> bytes:
+        print('get ' + repr(self))
+        if self._image is b'':
+            print('4 None')
+        else:
+            print('4 ' + str(len(self._image)))
+        #with self.__lock:
+        return self._image
+
+
+config: ObjectView = None
+logger: logging.Logger = None
+root_path: str = None
+motion_detector: WebcamMotionDetector = None
+image_listener: ConcreteImageListener = ConcreteImageListener()
+no_image_available: bytes = b''
 
 
 def create_rotating_log(path):
     global config
-    result = logging.getLogger("Webcam HTTP server")
+    result: logging.Logger = logging.getLogger("Webcam HTTP server")
     result.setLevel(logging.INFO)
-    path_obj = pathlib.Path(path)
+    path_obj: pathlib.Path = pathlib.Path(path)
     if not os.path.exists(path_obj.parent.absolute()):
         os.makedirs(path_obj.parent.absolute())
-    if not os.path.exists(path):
+    if os.path.exists(path):
+        open(path, 'w').close()
+    else:
         path_obj.touch()
     # noinspection Spellchecker
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler = logging.StreamHandler()
+    formatter: logging.Formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler: logging.Handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     result.addHandler(console_handler)
-    file_handler = RotatingFileHandler(path, maxBytes=1024 * 1024 * 5, backupCount=5)
+    file_handler: logging.Handler = RotatingFileHandler(path, maxBytes=1024 * 1024 * 5, backupCount=5)
     # noinspection PyUnresolvedReferences
     file_handler.setLevel(config.LOG_LEVEL)
     file_handler.setFormatter(formatter)
@@ -65,20 +89,20 @@ def create_rotating_log(path):
 
 
 def configure():
-    global config, logger, root_path, motion_detector, no_image_available
+    global config, image_listener, logger, root_path, motion_detector, no_image_available
     config_parser = configparser.ConfigParser()
     config_parser.optionxform = str
     config_parser.read(str(pathlib.Path(__file__).parent) + os.sep + 'webcam_motion_detection.conf')
     config = ObjectView(dict(config_parser['Main']))
     # noinspection PyUnresolvedReferences
-    log_file_path = config.TMP_DIR + os.sep + 'webcam_motion_detection.log'
+    log_file_path: str = config.TMP_DIR + os.sep + 'webcam_motion_detection.log'
     root_path = str(pathlib.Path(__file__).parent) + os.sep + 'webapp'
     logger = create_rotating_log(log_file_path)
     logger.info('Configuring...')
     atexit.register(shutdown)
     signal.signal(signal.SIGINT, shutdown)
     try:
-        motion_detector = WebcamMotionDetector(logger, config)
+        motion_detector = WebcamMotionDetector(logger, config, image_listener)
     except Exception as e:
         logger.error(e)
         sys.exit(1)
@@ -99,15 +123,14 @@ def shutdown():
 
 
 def get_video():
-    global motion_detector, logger, root_path, no_image_available
+    global logger, motion_detector, image_listener, no_image_available
     while True:
-        time.sleep(0.3)
-        # noinspection PyUnresolvedReferences
-        image = motion_detector.get_image()
-        array = no_image_available
-        if image:
-            array = bytearray(image)
+        motion_detector.get_image_event().wait()
+        array: bytes = image_listener.get_image()
+        if array is b'':
+            array = no_image_available
         yield b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + array + b'\r\n'
+        time.sleep(0.2)
 
 
 configure()
@@ -118,7 +141,7 @@ webapp = flask.Flask(__name__, static_url_path=root_path)
 
 @webapp.route('/css/<path:path>', methods=['GET'])
 def send_css(path):
-    global logger
+    global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug('Sending: ' + str(root_path) + os.sep + 'static' + os.sep + 'css' + os.sep + path)
     return flask.send_from_directory(str(root_path) + os.sep + 'css', path)
@@ -126,7 +149,7 @@ def send_css(path):
 
 @webapp.route('/images/<path:path>', methods=['GET'])
 def send_images(path):
-    global logger
+    global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug('Sending: ' + str(root_path) + os.sep + 'static' + os.sep + 'images' + os.sep + path)
     return flask.send_from_directory(str(root_path) + os.sep + 'images', path)
@@ -134,7 +157,7 @@ def send_images(path):
 
 @webapp.route('/js/<path:path>', methods=['GET'])
 def send_js(path):
-    global logger
+    global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug('Sending: ' + str(root_path) + os.sep + 'static' + os.sep + 'js' + os.sep + path)
     return flask.send_from_directory(str(root_path) + os.sep + 'js', path)
@@ -142,7 +165,7 @@ def send_js(path):
 
 @webapp.route('/', methods=['GET'])
 def send_home():
-    global logger
+    global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug('Sending: ' + str(root_path) + os.sep + 'static' + os.sep + 'index.html')
     return flask.send_file(str(root_path) + os.sep + 'index.html')
@@ -186,7 +209,7 @@ def rest_app_health():
         cpu_temperature = psutil.sensors_temperatures().get('coretemp')[0].current
     except Exception as e:
         # noinspection PyUnresolvedReferences
-        logger.warn('Cannot stop service: %s' % e, file=sys.stderr)
+        logger.warning('Cannot stop service: %s' % e, file=sys.stderr)
     uptime = humanize.naturaldelta(datetime.timedelta(seconds=round(time.time() - psutil.boot_time(), 0)))
     result['sys'] = {'processors': multiprocessing.cpu_count(), 'cpuLoad': os.getloadavg(), 'uptime': uptime,
                      'cpuTemperature': cpu_temperature}
