@@ -15,6 +15,7 @@ import psutil
 import signal
 import shutil
 import sys
+import threading
 import time
 
 from logging.handlers import RotatingFileHandler
@@ -35,22 +36,16 @@ class ConcreteImageListener(ImageListener):
 
     def __init__(self):
         super().__init__()
-        self.__lock = multiprocessing.RLock()
+        self.__lock = threading.RLock()
         self._image: bytes = b''
 
     def on_image(self, image: bytearray) -> None:
-        #with self.__lock:
-        self._image = image.copy()
-        print('set ' + repr(self))
+        with self.__lock:
+            self._image = image
 
     def get_image(self) -> bytes:
-        print('get ' + repr(self))
-        if self._image is b'':
-            print('4 None')
-        else:
-            print('4 ' + str(len(self._image)))
-        #with self.__lock:
-        return self._image
+        with self.__lock:
+            return self._image
 
 
 config: ObjectView = None
@@ -228,10 +223,8 @@ def send_video():
     return flask.Response(get_video(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
+logger.info('Starting on port: ' + config.HTTP_PORT)
 # noinspection PyUnresolvedReferences
-webapp_args = {'host': '0.0.0.0', 'port': int(config.HTTP_PORT)}
-web_server = multiprocessing.Process(target=webapp.run, kwargs=webapp_args)
-web_server.start()
-# noinspection PyUnresolvedReferences
-logger.info('Listening on port: ' + config.HTTP_PORT)
+webapp.run(host='0.0.0.0', port=int(config.HTTP_PORT))
 sys.exit(0)
+

@@ -1,9 +1,6 @@
 # Python program to implement 
 # Webcam Motion Detector
 import atexit
-import multiprocessing
-from builtins import int
-
 import cv2
 import datetime
 import logging
@@ -18,6 +15,7 @@ import time
 import traceback
 import zipstream
 
+from builtins import int
 from abc import ABC, abstractmethod
 from datetime import datetime
 from email.mime.application import MIMEApplication
@@ -74,7 +72,7 @@ class WebcamMotionDetector(object):
         self.__last_detection: datetime = None
         # Video capture and JPEG image
         self.__image_bytes: bytes = b''
-        self.__image_event: multiprocessing.Event = multiprocessing.Event()
+        self.__image_event: threading.Event = threading.Event()
         self.__images: list = list()
         # Listener
         self.__listener: ImageListener = listener
@@ -351,5 +349,5 @@ class WebcamMotionDetector(object):
         else:
             self.logger.info('Capture already running...')
 
-    def get_image_event(self) -> multiprocessing.Event:
+    def get_image_event(self) -> threading.Event:
         return self.__image_event
