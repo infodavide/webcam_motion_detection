@@ -77,8 +77,9 @@ class WebcamMotionDetector(object):
         # Listener
         self.__listener: ImageListener = listener
         # Status flags
-        self.activated: bool = False
-        self.suspended: bool = True
+        self.__activated: bool = False
+        self.__suspended: bool = True
+        self.moving: bool = False
         # Tasks
         self.__check_activated_task: threading.Timer = None
         self.__check_suspended_task: threading.Timer = None
@@ -180,7 +181,8 @@ class WebcamMotionDetector(object):
                 mt['Subject'] = os.path.splitext(os.path.basename(__file__))[0] + ' completed'
             else:
                 self.logger.debug(message)
-                mt = MIMEText(os.path.splitext(os.path.basename(__file__))[0] + ' completed with error(s): ' + message + ', check logs', 'plain')
+                mt = MIMEText(os.path.splitext(os.path.basename(__file__))[0] + ' completed with error(s): '
+                              + message + ', check logs', 'plain')
                 mt['Subject'] = os.path.splitext(os.path.basename(__file__))[0] + ' completed with error(s)'
             msg['Subject'] = mt['Subject']
             # noinspection PyUnresolvedReferences
@@ -223,11 +225,11 @@ class WebcamMotionDetector(object):
                 if rng[0] <= t <= rng[1]:
                     r = True
                     break
-        if self.activated != r:
-            self.logger.info('activated: ' + str(r) + ', suspended: ' + str(self.suspended))
-            self.activated = r
-            self.logger.debug('activated: ' + str(self.activated) + ', suspended: ' + str(self.suspended))
-            if self.activated and not self.suspended:
+        if self.__activated != r:
+            self.logger.info('activated: ' + str(r) + ', suspended: ' + str(self.__suspended))
+            self.__activated = r
+            self.logger.debug('activated: ' + str(self.__activated) + ', suspended: ' + str(self.__suspended))
+            if self.__activated and not self.__suspended:
                 self.start()
         self.__check_activated_task = threading.Timer(60, self.__check_activated)
         self.__check_activated_task.start()
@@ -254,11 +256,11 @@ class WebcamMotionDetector(object):
                     if addresses and 'mac' in addresses and addresses['mac'] in mac_addresses:
                         r = True
                         break
-        if self.suspended != r:
-            self.logger.info('activated: ' + str(self.activated) + ', suspended: ' + str(r))
-            self.suspended = r
-            self.logger.debug('activated: ' + str(self.activated) + ', suspended: ' + str(self.suspended))
-            if not self.suspended and self.activated:
+        if self.__suspended != r:
+            self.logger.info('activated: ' + str(self.__activated) + ', suspended: ' + str(r))
+            self.__suspended = r
+            self.logger.debug('activated: ' + str(self.__activated) + ', suspended: ' + str(self.__suspended))
+            if not self.__suspended and self.__activated:
                 self.start()
         self.__check_suspended_task = threading.Timer(60, self.__check_suspended)
         self.__check_suspended_task.start()
@@ -270,7 +272,7 @@ class WebcamMotionDetector(object):
         static_back = None
         # Infinite while loop to treat stack of image as video
         try:
-            while self.activated and not self.suspended:
+            while self.__activated and not self.__suspended:
                 now: datetime.datetime = datetime.now()
                 # Reading frame(image) from video
                 check, frame = self.__video.read()
@@ -290,7 +292,8 @@ class WebcamMotionDetector(object):
                     continue
                 # Difference between static background and current frame(which is GaussianBlur)
                 diff_frame = cv2.absdiff(static_back, gray)
-                # If change in between static background and current frame is greater than 30 it will show white color(255)
+                # If change in between static background and current frame is greater than 30
+                # it will show white color(255)
                 thresh_frame = cv2.threshold(diff_frame, 30, 255, cv2.THRESH_BINARY)[1]
                 thresh_frame = cv2.dilate(thresh_frame, None, iterations=2)
                 # Finding contour of moving object
@@ -302,18 +305,21 @@ class WebcamMotionDetector(object):
                         # making green rectangle around the moving object
                         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
                         break
-                if motion and (self.__last_detection is None or (now - self.__last_detection).total_seconds() > 1):
-                    image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', self.__image_bytes)
-                    while len(self.__images) > MAX_IMAGES:
-                        self.__images.pop(0)
-                    self.__images.append(image)
-                    self.logger.info('Motion detected and stored to ' + image.basename)
-                    self.__last_detection = now
-                    static_back = gray
+                if not self.moving:
+                    if motion and (self.__last_detection is None or (now - self.__last_detection).total_seconds() > 1):
+                        image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', self.__image_bytes)
+                        while len(self.__images) > MAX_IMAGES:
+                            self.__images.pop(0)
+                        self.__images.append(image)
+                        self.logger.info('Motion detected and stored to ' + image.basename)
+                        self.__last_detection = now
+                        static_back = gray
                 # noinspection PyUnresolvedReferences
-                if self.__last_detection and (now - self.__last_detection).total_seconds() > int(self.__config.NOTIFICATION_DELAY):
+                if self.__last_detection and len(self.__images) > 0 \
+                        and (now - self.__last_detection).total_seconds() > int(self.__config.NOTIFICATION_DELAY):
                     # noinspection PyUnresolvedReferences
-                    task = threading.Timer(0, self.__notify, args=[self.__images.copy(), 'Motion detected using ' + self.__config.VIDEO_DEVICE_NAME])
+                    task = threading.Timer(0, self.__notify, args=[self.__images.copy(), 'Motion detected using '
+                                                                   + self.__config.VIDEO_DEVICE_NAME])
                     self.__images.clear()
                     task.start()
                 # noinspection PyUnresolvedReferences

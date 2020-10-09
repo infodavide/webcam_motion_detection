@@ -6,7 +6,9 @@ import configparser
 import cv2
 import datetime
 import flask
+import flask_socketio
 import humanize
+import io
 import logging
 import multiprocessing
 import os
@@ -42,6 +44,7 @@ class ConcreteImageListener(ImageListener):
     def on_image(self, image: bytearray) -> None:
         with self.__lock:
             self._image = image
+            # flask_socketio.emit('video', {'data': len(image)})
 
     def get_image(self) -> bytes:
         with self.__lock:
@@ -111,27 +114,20 @@ def configure():
 
 
 def shutdown():
-    global web_server
-    if globals().get('web_server'):
-        web_server.terminate()
-        web_server.join()
-
-
-def get_video():
-    global logger, motion_detector, image_listener, no_image_available
-    while True:
-        motion_detector.get_image_event().wait()
-        array: bytes = image_listener.get_image()
-        if array is b'':
-            array = no_image_available
-        yield b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + array + b'\r\n'
-        time.sleep(0.2)
+    global logger, webapp
+    if globals().get('webapp'):
+        func = webapp.environ.get('werkzeug.server.shutdown')
+        if func is None:
+            logger.warning('Shutdown function not available')
+        else:
+            func()
 
 
 configure()
 # noinspection PyUnresolvedReferences
 logger.info('Starting web server')
 webapp = flask.Flask(__name__, static_url_path=root_path)
+websocket = flask_socketio.SocketIO(webapp)
 
 
 @webapp.route('/css/<path:path>', methods=['GET'])
@@ -215,16 +211,43 @@ def rest_app_health():
     return flask.jsonify(result)
 
 
+@websocket.on('connect')
+def handle_connect():
+    global logger
+    logger.info('Websocket connected')
+
+
+@websocket.on('subscribe')
+def handle_subscribe(topic):
+    global logger
+    logger.info('Websocket subscribing to topic: '+topic)
+
+
+@websocket.on('unsubscribe')
+def handle_unsubscribe(topic):
+    global logger
+    logger.info('Websocket unsubscribing to topic: '+topic)
+
+
+@websocket.on('disconnect')
+def handle_disconnect():
+    global logger
+    logger.info('Websocket disconnected')
+
+
 @webapp.route("/video", methods=['GET'])
 def send_video():
-    global logger
+    global logger, motion_detector, image_listener, no_image_available
     # noinspection PyUnresolvedReferences
     logger.debug('Streaming video...')
-    return flask.Response(get_video(), mimetype="multipart/x-mixed-replace; boundary=frame")
+    array: bytes = image_listener.get_image()
+    if array is b'':
+        array = no_image_available
+    return flask.send_file(io.BytesIO(array), attachment_filename='video.jpeg', mimetype='image/jpeg')
 
 
+# noinspection PyUnresolvedReferences
 logger.info('Starting on port: ' + config.HTTP_PORT)
 # noinspection PyUnresolvedReferences
 webapp.run(host='0.0.0.0', port=int(config.HTTP_PORT))
 sys.exit(0)
-
