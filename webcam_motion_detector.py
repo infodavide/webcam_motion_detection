@@ -1,26 +1,26 @@
 # Python program to implement 
 # Webcam Motion Detector
 import atexit
-import cv2
 import datetime
 import logging
-import nmap
 import os
 import signal
-import subprocess
 import smtplib
+import subprocess
 import sys
 import threading
 import time
 import traceback
-import zipstream
-
-from builtins import int
 from abc import ABC, abstractmethod
+from builtins import int
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import cv2
+import nmap
+import zipstream
 
 # Constants
 TIME_FORMAT: str = '%H:%M'
@@ -41,6 +41,7 @@ class ObjectView(object):
         self.__dict__ = d
 
     """ Returns the string representation of the view """
+
     def __str__(self):
         return str(self.__dict__)
 
@@ -51,6 +52,7 @@ class ImageItem(object):
         self.data = data
 
     """ Returns the string representation of the view """
+
     def __str__(self):
         return str(self.basename)
 
@@ -67,15 +69,17 @@ class ImageListener(ABC):
 
 class WebcamMotionDetector(object):
 
-    def __init__(self, logger: logging.Logger, configuration: ObjectView, listener: ImageListener):
+    def __init__(self, logger: logging.Logger, configuration: ObjectView):
+        self.logger: logging.Logger = logger
+        self.logger.info('Initializing motion detector...')
+        # Listeners
+        self.__listeners = list()
         # Last detection
         self.__last_detection: datetime = None
         # Video capture and JPEG image
         self.__image_bytes: bytes = b''
         self.__image_event: threading.Event = threading.Event()
         self.__images: list = list()
-        # Listener
-        self.__listener: ImageListener = listener
         # Status flags
         self.__activated: bool = False
         self.__suspended: bool = True
@@ -84,7 +88,6 @@ class WebcamMotionDetector(object):
         self.__check_activated_task: threading.Timer = None
         self.__check_suspended_task: threading.Timer = None
         self.__capture_task: threading.Timer = None
-        self.logger: logging.Logger = logger
         atexit.register(self.__del__)
         signal.signal(signal.SIGINT, self.__del__)
         self.logger.info('Configuring motion detector...')
@@ -118,7 +121,8 @@ class WebcamMotionDetector(object):
         self.__check_suspended()
 
     def __del__(self):
-        print('Destroying motion detector...')
+        if self.logger:
+            self.logger.info('Destroying motion detector...')
         try:
             if self.__check_activated_task:
                 self.__check_activated_task.cancel()
@@ -266,6 +270,14 @@ class WebcamMotionDetector(object):
         self.__check_suspended_task.start()
         self.logger.debug('Check suspended scheduled...' + repr(self.__check_suspended_task))
 
+    def add_listener(self, listener: ImageListener) -> None:
+        if listener not in self.__listeners:
+            self.__listeners.append(listener)
+
+    def remove_listener(self, listener: ImageListener) -> None:
+        if listener in self.__listeners:
+            self.__listeners.remove(listener)
+
     def __capture(self) -> None:
         self.logger.info('Starting capture...')
         # Assigning our static_back to None
@@ -278,7 +290,8 @@ class WebcamMotionDetector(object):
                 check, frame = self.__video.read()
                 # Reset the JPEG image associated to the previous frame
                 is_success, image = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-                self.__listener.on_image(bytearray(image))
+                for listener in self.__listeners:
+                    listener.on_image(bytearray(image))
                 self.__image_event.set()
                 # Initializing motion = 0(no motion)
                 motion: bool = False

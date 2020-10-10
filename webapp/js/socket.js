@@ -4,9 +4,13 @@ function connectWebSocket(){
     return;
   }
   console.log('Connecting websocket...');
-  var url=BASE_URL+'/stomp';
-  socket=io(url.replace(/http:/i, 'ws:'));
-  socket.on('connect', function(){console.log('Websocket connected');});
+  socket=io(BASE_URL.replace(/http:/i,'ws:'),{
+        path: '/websocket',
+        reconnectionDelayMax: 100,
+        transports: ['websocket']
+    }
+  );
+  socket.on('connect',function(){console.log('Websocket connected');});
   socket.on('error',function(e){console.log('Websocket error: '+e);});
   socket.on('disconnect',function(e){console.log('Websocket closing: '+e);});
 }

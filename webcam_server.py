@@ -2,25 +2,29 @@
 # Webcam HTTP server for administration
 
 import atexit
+import base64
 import configparser
-import cv2
 import datetime
-import flask
-import flask_socketio
-import humanize
 import io
+import json
 import logging
 import multiprocessing
 import os
 import pathlib
-import psutil
-import signal
 import shutil
+import signal
 import sys
 import threading
 import time
-
 from logging.handlers import RotatingFileHandler
+
+import cv2
+import flask
+import flask_cors
+import flask_socketio
+import humanize
+import psutil
+
 from webcam_motion_detector import WebcamMotionDetector, ImageListener
 
 
@@ -44,7 +48,6 @@ class ConcreteImageListener(ImageListener):
     def on_image(self, image: bytearray) -> None:
         with self.__lock:
             self._image = image
-            # flask_socketio.emit('video', {'data': len(image)})
 
     def get_image(self) -> bytes:
         with self.__lock:
@@ -59,7 +62,7 @@ image_listener: ConcreteImageListener = ConcreteImageListener()
 no_image_available: bytes = b''
 
 
-def create_rotating_log(path):
+def create_rotating_log(path: str):
     global config
     result: logging.Logger = logging.getLogger("Webcam HTTP server")
     result.setLevel(logging.INFO)
@@ -100,7 +103,7 @@ def configure():
     atexit.register(shutdown)
     signal.signal(signal.SIGINT, shutdown)
     try:
-        motion_detector = WebcamMotionDetector(logger, config, image_listener)
+        motion_detector = WebcamMotionDetector(logger, config)
     except Exception as e:
         logger.error(e)
         sys.exit(1)
@@ -113,10 +116,20 @@ def configure():
         sys.exit(1)
 
 
+def get_video():
+    global logger, image_listener, no_image_available
+    while True:
+        array: bytes = image_listener.get_image()
+        if array is b'':
+            array = no_image_available
+        yield b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + array + b'\r\n'
+        time.sleep(0.1)
+
+        
 def shutdown():
     global logger, webapp
     if globals().get('webapp'):
-        func = webapp.environ.get('werkzeug.server.shutdown')
+        func = webapp.env.get('werkzeug.server.shutdown')
         if func is None:
             logger.warning('Shutdown function not available')
         else:
@@ -127,7 +140,9 @@ configure()
 # noinspection PyUnresolvedReferences
 logger.info('Starting web server')
 webapp = flask.Flask(__name__, static_url_path=root_path)
-websocket = flask_socketio.SocketIO(webapp)
+webapp.config['SECRET_KEY'] = 'th!s_!s_s3cr3t'
+websocket = flask_socketio.SocketIO(webapp, cors_allowed_origins="*", ping_timeout=120, path='/websocket',
+                                    async_mode='gevent', logger=False)
 
 
 @webapp.route('/css/<path:path>', methods=['GET'])
@@ -211,24 +226,40 @@ def rest_app_health():
     return flask.jsonify(result)
 
 
+@flask_cors.cross_origin
+@websocket.on_error_default  # handles all namespaces without an explicit error handler
+def default_error_handler(e):
+    global logger
+    logger.error('Websocket error: ' + e)
+    pass
+
+
+@flask_cors.cross_origin
 @websocket.on('connect')
 def handle_connect():
     global logger
     logger.info('Websocket connected')
+    flask_socketio.emit('message', 'You are welcome.')
 
 
+@flask_cors.cross_origin
 @websocket.on('subscribe')
 def handle_subscribe(topic):
-    global logger
-    logger.info('Websocket subscribing to topic: '+topic)
+    global logger, motion_detector
+    logger.info('Websocket subscribing to topic: ' + topic)
+    flask_socketio.join_room(topic)
+    flask_socketio.emit('message', 'You subscribed to ' + topic)
 
 
 @websocket.on('unsubscribe')
 def handle_unsubscribe(topic):
-    global logger
-    logger.info('Websocket unsubscribing to topic: '+topic)
+    global logger, motion_detector
+    logger.info('Websocket unsubscribing to topic: ' + topic)
+    flask_socketio.leave_room(topic)
+    flask_socketio.emit('message', 'You unsubscribed from ' + topic)
 
 
+@flask_cors.cross_origin
 @websocket.on('disconnect')
 def handle_disconnect():
     global logger
@@ -237,17 +268,18 @@ def handle_disconnect():
 
 @webapp.route("/video", methods=['GET'])
 def send_video():
-    global logger, motion_detector, image_listener, no_image_available
+    global logger, motion_detector
     # noinspection PyUnresolvedReferences
     logger.debug('Streaming video...')
-    array: bytes = image_listener.get_image()
-    if array is b'':
-        array = no_image_available
-    return flask.send_file(io.BytesIO(array), attachment_filename='video.jpeg', mimetype='image/jpeg')
+    motion_detector.add_listener(image_listener)
+    return flask.Response(get_video(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
-# noinspection PyUnresolvedReferences
-logger.info('Starting on port: ' + config.HTTP_PORT)
-# noinspection PyUnresolvedReferences
-webapp.run(host='0.0.0.0', port=int(config.HTTP_PORT))
-sys.exit(0)
+if __name__ == '__main__':
+    # noinspection PyUnresolvedReferences
+    logger.info('Starting on port: ' + config.HTTP_PORT)
+    # Cross Origin Resource Sharing
+    flask_cors.CORS(webapp)
+    # noinspection PyUnresolvedReferences
+    websocket.run(webapp, host='0.0.0.0', port=int(config.HTTP_PORT), debug=False)
+    print('Stopping')
