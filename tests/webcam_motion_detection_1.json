@@ -1,0 +1,65 @@
+{
+    "activation_periods": [
+        [
+            "08:30",
+            "23:30"
+        ],
+        [
+            "08:31",
+            "23:31"
+        ],
+        [
+            "08:32",
+            "23:32"
+        ],
+        [
+            "08:33",
+            "23:33"
+        ],
+        [
+            "08:34",
+            "23:34"
+        ],
+        [
+            "08:35",
+            "23:35"
+        ],
+        [
+            "08:36",
+            "23:36"
+        ]
+    ],
+    "extensions": {
+        "FtpUploader": {
+            "enabled": false,
+            "password": "secret",
+            "port": 21,
+            "server": "ftp.domain.com"
+        },
+        "SmtpNotifier": {
+            "enabled": true,
+            "port": 25,
+            "server": "smtp.domain.com"
+        }
+    },
+    "http_port": 8080,
+    "log_level": "DEBUG",
+    "mac_addresses": {
+        "40:40:A7:92:F5:AA": "Device 2",
+        "40:40:A7:92:F5:FF": "Device 1"
+    },
+    "notification_delay": 5,
+    "password": "secret",
+    "temp_dir": "/tmp/webcam_motion_detection",
+    "test_enabled": true,
+    "user": "admin",
+    "video_device": "Camera 1",
+    "video_device_address": "0",
+    "window_enabled": true,
+    "zone": [
+        -1,
+        -2,
+        -3,
+        -4
+    ]
+}

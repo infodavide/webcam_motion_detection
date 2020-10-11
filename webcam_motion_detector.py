@@ -1,49 +1,30 @@
-# Python program to implement 
+# -*- coding: utf-*-
 # Webcam Motion Detector
 import atexit
+import cv2
 import datetime
 import logging
 import os
 import signal
-import smtplib
-import subprocess
 import sys
 import threading
 import time
 import traceback
+
 from abc import ABC, abstractmethod
 from builtins import int
 from datetime import datetime
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from typing import List
+from webcam_driver import WebcamDriver
+from webcam_motion_config import Times, WebcamMotionConfig
+from extension import Extension
+from id_network_utils import find_ip_v4, is_reachable, scan_network
 
-import cv2
-import nmap
-import zipstream
-
-# Constants
-TIME_FORMAT: str = '%H:%M'
 CAPTURE_DELAY: float = 0.2
 CAPTURE_CONTOUR: int = 25000
 MAX_IMAGES: int = 10
-
-
-def find_ip_v4():
-    address: str = subprocess.check_output(['hostname', '--all-ip-addresses']).decode()
-    if address and not address.startswith('127.'):
-        return address
-    return '127.0.0.1'
-
-
-class ObjectView(object):
-    def __init__(self, d):
-        self.__dict__ = d
-
-    """ Returns the string representation of the view """
-
-    def __str__(self):
-        return str(self.__dict__)
+ACTIVATED_SPACE: str = 'activated: '
+SUSPENDED_SPACE: str = 'suspended: '
 
 
 class ImageItem(object):
@@ -53,29 +34,41 @@ class ImageItem(object):
 
     """ Returns the string representation of the view """
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.basename)
 
 
 class ImageListener(ABC):
-
     @abstractmethod
-    def on_image(self, image: bytearray) -> None:
+    def on_image(self, image: bytes) -> None:
         """
         Receive image from WebcamMotionDetector.
         """
         pass
 
 
-class WebcamMotionDetector(object):
+ListOfImageListeners = List[ImageListener]
+ListOfExtensions = List[Extension]
 
-    def __init__(self, logger: logging.Logger, configuration: ObjectView):
-        self.logger: logging.Logger = logger
-        self.logger.info('Initializing motion detector...')
+
+class WebcamMotionDetector(object):
+    logger: logging.Logger = None
+
+    def __init__(self, parent_logger: logging.Logger, config: WebcamMotionConfig, driver: WebcamDriver):
+        self.__active = False
+        if not WebcamMotionDetector.logger:
+            WebcamMotionDetector.logger = logging.getLogger(self.__class__.__name__)
+            for handler in parent_logger.handlers:
+                WebcamMotionDetector.logger.addHandler(handler)
+            WebcamMotionDetector.logger.setLevel(parent_logger.level)
+        WebcamMotionDetector.logger.info('Initializing ' + self.__class__.__name__ + '...')
         # Listeners
-        self.__listeners = list()
+        self.__listeners: ListOfImageListeners = list()
+        # Extensions
+        self.__extensions: ListOfExtensions = list()
         # Last detection
-        self.__last_detection: datetime = None
+        # noinspection PyTypeChecker
+        self.__last_detection_time: datetime = None
         # Video capture and JPEG image
         self.__image_bytes: bytes = b''
         self.__image_event: threading.Event = threading.Event()
@@ -84,191 +77,80 @@ class WebcamMotionDetector(object):
         self.__activated: bool = False
         self.__suspended: bool = True
         self.moving: bool = False
+        # Locks
+        self.__start_capture_lock: threading.Lock = threading.Lock()
+        self.__start_lock: threading.Lock = threading.Lock()
+        self.__stop_lock: threading.Lock = threading.Lock()
         # Tasks
+        # noinspection PyTypeChecker
         self.__check_activated_task: threading.Timer = None
+        # noinspection PyTypeChecker
         self.__check_suspended_task: threading.Timer = None
+        # noinspection PyTypeChecker
         self.__capture_task: threading.Timer = None
+        # Network scan results
+        # noinspection PyTypeChecker
+        self.__scan_results: list = None
         atexit.register(self.__del__)
         signal.signal(signal.SIGINT, self.__del__)
-        self.logger.info('Configuring motion detector...')
-        self.__config: ObjectView = configuration
+        WebcamMotionDetector.logger.info('Configuring motion detector...')
+        self.__config: WebcamMotionConfig = config
         # noinspection PyUnresolvedReferences
-        self.__log_file_path: str = self.__config.TMP_DIR + os.sep + 'webcam_motion_detection.log'
-        # Time ranges for activation
-        self.__times_on: dict = dict()
-        self.__times_on[1] = []
-        self.__times_on[2] = []
-        self.__times_on[3] = []
-        self.__times_on[4] = []
-        self.__times_on[5] = []
-        self.__times_on[6] = []
-        self.__times_on[7] = []
+        self.__log_file_path: str = self.__config.get_temp_dir() + os.sep + 'webcam_motion_detection.log'
         # noinspection PyUnresolvedReferences
-        if self.__config.ACTIVATION_TIMES and len(self.__config.ACTIVATION_TIMES) > 0:
-            # noinspection PyUnresolvedReferences
-            for value in self.__config.ACTIVATION_TIMES.split(','):
-                fields = value.split('|')
-                self.__times_on[int(fields[0])].append([datetime.strptime(fields[1], TIME_FORMAT).time(),
-                                                        datetime.strptime(fields[2], TIME_FORMAT).time()])
-        # noinspection PyUnresolvedReferences
-        self.__video: cv2.VideoCapture = cv2.VideoCapture(int(self.__config.VIDEO_DEVICE))
-        if not self.__video or not self.__video.isOpened():
-            # noinspection PyUnresolvedReferences
-            raise Exception('Device is not valid: ' + self.__config.VIDEO_DEVICE)
-        self.__video.setExceptionMode(enable=True)
-        self.logger.info('Motion detector configured')
-        self.__check_activated()
-        self.__check_suspended()
+        self.__driver: WebcamDriver = driver
+        WebcamMotionDetector.logger.info('Motion detector configured')
 
-    def __del__(self):
-        if self.logger:
-            self.logger.info('Destroying motion detector...')
-        try:
-            if self.__check_activated_task:
-                self.__check_activated_task.cancel()
-        except Exception as e:
-            print('Cannot stop __check_activated_task: %s' % e, file=sys.stderr)
-        try:
-            if self.__check_suspended_task:
-                self.__check_suspended_task.cancel()
-        except Exception as e:
-            print('Cannot stop __check_suspended_task: %s' % e, file=sys.stderr)
-        try:
-            if self.__capture_task:
-                self.__capture_task.cancel()
-        except Exception as e:
-            print('Cannot stop __capture_task: %s' % e, file=sys.stderr)
-        try:
-            if self.__video:
-                # Release video device
-                self.__video.release()
-            # noinspection PyUnresolvedReferences
-            if self.__config.GRAPHICAL:
-                # Destroying all the windows
-                cv2.destroyAllWindows()
-        except Exception as e:
-            print('Cannot stop video: %s' % e, file=sys.stderr)
+    def __del__(self) -> None:
+        self.stop()
 
-    def __notify(self, images, message=None) -> None:
-        # noinspection PyUnresolvedReferences
-        if not self.__config.SMTP_SERVER or not self.__config.SMTP_PORT:
-            self.logger.warning('SMTP_SERVER or SMTP_PORT not specified in configuration, skipping email notification')
+    def __process(self, images, message=None) -> None:
+        if not self.__extensions or len(self.__extensions) == 0:
+            WebcamMotionDetector.logger.debug('No extension set')
             return
-        # noinspection PyUnresolvedReferences
-        if not self.__config.SMTP_FROM or not self.__config.SMTP_TO:
-            self.logger.warning('No email address specified, skipping email notification')
-            return
-        parts = []
-        for image in images:
-            part: MIMEApplication = MIMEApplication(
-                image.data,
-                Name=image.basename
-            )
-            part['Content-Disposition'] = 'attachment; filename="%s"' % image.basename
-            parts.append(part)
-        if len(parts) == 0:
-            return
-        # noinspection PyUnresolvedReferences
-        self.logger.info('Sending email to ' + self.__config.SMTP_TO)
-        # noinspection PyTypeChecker
-        server: smtplib.SMTP = None
-        try:
-            # noinspection PyUnresolvedReferences
-            server = smtplib.SMTP(self.__config.SMTP_SERVER, self.__config.SMTP_PORT)
-            msg: MIMEMultipart = MIMEMultipart()
-            # noinspection PyUnresolvedReferences
-            msg['From'] = self.__config.SMTP_FROM
-            # noinspection PyUnresolvedReferences
-            msg['To'] = self.__config.SMTP_TO
-            if message is None:
-                mt = MIMEText(os.path.splitext(os.path.basename(__file__))[0] + ' completed', 'plain')
-                mt['Subject'] = os.path.splitext(os.path.basename(__file__))[0] + ' completed'
-            else:
-                self.logger.debug(message)
-                mt = MIMEText(os.path.splitext(os.path.basename(__file__))[0] + ' completed with error(s): '
-                              + message + ', check logs', 'plain')
-                mt['Subject'] = os.path.splitext(os.path.basename(__file__))[0] + ' completed with error(s)'
-            msg['Subject'] = mt['Subject']
-            # noinspection PyUnresolvedReferences
-            mt['From'] = self.__config.SMTP_FROM
-            # noinspection PyUnresolvedReferences
-            mt['To'] = self.__config.SMTP_TO
-            msg.attach(mt)
-            if self.__log_file_path is not None:
-                basename: str = os.path.basename(self.__log_file_path + '.zip')
-                zipfile = zipstream.ZipFile()
-                zipfile.write(self.__log_file_path, os.path.basename(self.__log_file_path))
-                part = None
-                for data in zipfile:
-                    part = MIMEApplication(
-                        data,
-                        Name=basename
-                    )
-                part['Content-Disposition'] = 'attachment; filename="%s"' % basename
-                msg.attach(part)
-            for part in parts:
-                msg.attach(part)
-            # noinspection PyUnresolvedReferences
-            if not self.__config.TEST:
-                # noinspection PyUnresolvedReferences
-                server.sendmail(msg['From'], self.__config.SMTP_TO, msg.as_string())
-            else:
-                self.logger.warning('Not sending (see configuration and TEST property')
-        finally:
-            if server:
-                server.close()
+        WebcamMotionDetector.logger.info('Dispatching to notifier')
+        for extension in self.__extensions:
+            if extension.get_config().is_enabled():
+                extension.process(images, message)
 
     def __check_activated(self) -> None:
-        self.logger.debug('Checking if activated according to time settings...')
+        WebcamMotionDetector.logger.debug('Checking if activated according to time settings...')
         r: bool = False
         d = datetime.now()
-        ranges = self.__times_on[d.weekday()]
+        ranges: Times = self.__config.get_activation_periods().get(d.weekday())
         if len(ranges) > 0:
             t = d.time()
-            for rng in ranges:
-                if rng[0] <= t <= rng[1]:
-                    r = True
-                    break
+            if ranges[0] == ranges[1] or ranges[0] <= t <= ranges[1]:
+                r = True
         if self.__activated != r:
-            self.logger.info('activated: ' + str(r) + ', suspended: ' + str(self.__suspended))
+            WebcamMotionDetector.logger.info(ACTIVATED_SPACE + str(r) + ', ' + SUSPENDED_SPACE + str(self.__suspended))
             self.__activated = r
-            self.logger.debug('activated: ' + str(self.__activated) + ', suspended: ' + str(self.__suspended))
+            WebcamMotionDetector.logger.debug(ACTIVATED_SPACE + str(self.__activated) + ', ' + SUSPENDED_SPACE + str(self.__suspended))
             if self.__activated and not self.__suspended:
-                self.start()
+                self.__start_capture_task()
         self.__check_activated_task = threading.Timer(60, self.__check_activated)
         self.__check_activated_task.start()
-        self.logger.debug('Check activated scheduled...' + repr(self.__check_activated_task))
+        WebcamMotionDetector.logger.debug('Check activated scheduled...' + repr(self.__check_activated_task))
 
     def __check_suspended(self) -> None:
-        self.logger.debug('Checking if suspended by detection of a secure device on the network...')
+        WebcamMotionDetector.logger.debug('Checking if suspended by detection of a secure device on the network...')
+        ip_v4: str = find_ip_v4()
         r: bool = False
         # noinspection PyUnresolvedReferences
-        if self.__config.TEST:
-            self.logger.warning('Suspended forced to false (see configuration and TEST property')
+        self.__scan_results = scan_network(ip_v4)
         # noinspection PyUnresolvedReferences
-        elif self.__config.MAC_ADDRESSES and len(self.__config.MAC_ADDRESSES) > 0:
-            ip_v4 = find_ip_v4()
-            nm: nmap.PortScanner = nmap.PortScanner()
-            nm.scan(hosts=ip_v4.rsplit('.', 1)[0] + '.0/24', arguments='-sPn', sudo=True)
-            hosts: list = nm.all_hosts()
+        if self.__config.get_mac_addresses() and len(self.__config.get_mac_addresses()) > 0:
             # noinspection PyUnresolvedReferences
-            mac_addresses = self.__config.MAC_ADDRESSES.split(',')
-            for host in hosts:
-                data = nm[host]
-                if data:
-                    addresses = data['addresses']
-                    if addresses and 'mac' in addresses and addresses['mac'] in mac_addresses:
-                        r = True
-                        break
+            r = is_reachable(ip_v4, self.__config.get_mac_addresses(), self.__scan_results)
         if self.__suspended != r:
-            self.logger.info('activated: ' + str(self.__activated) + ', suspended: ' + str(r))
+            WebcamMotionDetector.logger.info(ACTIVATED_SPACE + str(self.__activated) + ', suspended: ' + str(r))
             self.__suspended = r
-            self.logger.debug('activated: ' + str(self.__activated) + ', suspended: ' + str(self.__suspended))
+            WebcamMotionDetector.logger.debug(ACTIVATED_SPACE + str(self.__activated) + ', suspended: ' + str(self.__suspended))
             if not self.__suspended and self.__activated:
-                self.start()
-        self.__check_suspended_task = threading.Timer(60, self.__check_suspended)
+                self.__start_capture_task()
+        self.__check_suspended_task = threading.Timer(120, self.__check_suspended)
         self.__check_suspended_task.start()
-        self.logger.debug('Check suspended scheduled...' + repr(self.__check_suspended_task))
+        WebcamMotionDetector.logger.debug('Check suspended scheduled...' + repr(self.__check_suspended_task))
 
     def add_listener(self, listener: ImageListener) -> None:
         if listener not in self.__listeners:
@@ -279,19 +161,22 @@ class WebcamMotionDetector(object):
             self.__listeners.remove(listener)
 
     def __capture(self) -> None:
-        self.logger.info('Starting capture...')
+        WebcamMotionDetector.logger.info('Capturing...')
         # Assigning our static_back to None
         static_back = None
         # Infinite while loop to treat stack of image as video
         try:
-            while self.__activated and not self.__suspended:
+            while self.__active and self.__activated and not self.__suspended:
                 now: datetime.datetime = datetime.now()
                 # Reading frame(image) from video
-                check, frame = self.__video.read()
+                check, frame = self.__driver.read()
+                if not check:
+                    continue
                 # Reset the JPEG image associated to the previous frame
-                is_success, image = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                resized_frame_bytes: bytes = bytes()
+                is_success, resized_frame_bytes = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 for listener in self.__listeners:
-                    listener.on_image(bytearray(image))
+                    listener.on_image(resized_frame_bytes)
                 self.__image_event.set()
                 # Initializing motion = 0(no motion)
                 motion: bool = False
@@ -318,30 +203,27 @@ class WebcamMotionDetector(object):
                         # making green rectangle around the moving object
                         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
                         break
-                if not self.moving:
-                    if motion and (self.__last_detection is None or (now - self.__last_detection).total_seconds() > 1):
-                        image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', self.__image_bytes)
-                        while len(self.__images) > MAX_IMAGES:
-                            self.__images.pop(0)
-                        self.__images.append(image)
-                        self.logger.info('Motion detected and stored to ' + image.basename)
-                        self.__last_detection = now
-                        static_back = gray
+                if not self.moving and motion and (self.__last_detection_time is None or (now - self.__last_detection_time).total_seconds() > 1):
+                    image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', self.__image_bytes)
+                    while len(self.__images) > MAX_IMAGES:
+                        self.__images.pop(0)
+                    self.__images.append(image)
+                    WebcamMotionDetector.logger.info('Motion detected and stored to ' + image.basename)
+                    self.__last_detection_time = now
+                    static_back = gray
                 # noinspection PyUnresolvedReferences
-                if self.__last_detection and len(self.__images) > 0 \
-                        and (now - self.__last_detection).total_seconds() > int(self.__config.NOTIFICATION_DELAY):
+                if self.__last_detection_time and (now - self.__last_detection_time).total_seconds() > int(self.__config.get_notification_delay()):
                     # noinspection PyUnresolvedReferences
-                    task = threading.Timer(0, self.__notify, args=[self.__images.copy(), 'Motion detected using '
-                                                                   + self.__config.VIDEO_DEVICE_NAME])
-                    self.__images.clear()
+                    task = threading.Timer(0, self.__process, args=[self.__images.copy(), 'Motion detected using ' + self.__config.get_video_device_name()])
                     task.start()
+                    self.__images.clear()
                 # noinspection PyUnresolvedReferences
-                if self.__config.GRAPHICAL:
+                if self.__config.get_graphical():
                     cv2.imshow("Color Frame", frame)
                 key = cv2.waitKey(1)
                 # if q entered process will stop
                 if key == ord('q'):
-                    self.logger.info('Stopping...')
+                    WebcamMotionDetector.logger.info('Stopping...')
                     if self.__check_activated_task:
                         self.__check_activated_task.cancel()
                     if self.__check_suspended_task:
@@ -349,24 +231,81 @@ class WebcamMotionDetector(object):
                     break
                 time.sleep(CAPTURE_DELAY)
         except Exception as e:
-            self.logger.error('Stopping after failure: ' + repr(e))
+            WebcamMotionDetector.logger.error('Stopping after failure: ' + repr(e))
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_tb(exc_traceback, limit=6, file=sys.stderr)
             if self.__check_activated_task:
                 self.__check_activated_task.cancel()
             if self.__check_suspended_task:
                 self.__check_suspended_task.cancel()
-        self.logger.info('Stopping capture...')
+        WebcamMotionDetector.logger.info('Stopping capture...')
         self.__capture_task = None
 
+    def __start_capture_task(self) -> None:
+        with self.__stop_lock:
+            if not self.__active:
+                WebcamMotionDetector.logger.info('Detector is not active, capture not started...')
+                return
+        with self.__start_capture_lock:
+            if self.__capture_task is None:
+                WebcamMotionDetector.logger.info('Starting capture...')
+                self.__active = True
+                self.__capture_task = threading.Timer(1, self.__capture)
+                self.__capture_task.start()
+                WebcamMotionDetector.logger.debug('Capture scheduled...' + repr(self.__capture_task))
+            else:
+                WebcamMotionDetector.logger.info('Capture already running')
+
+    def is_running(self) -> bool:
+        return self.__active
+
+    def is_activated(self) -> bool:
+        return self.__activated
+
+    def is_suspended(self) -> bool:
+        return self.__suspended
+
     def start(self) -> None:
-        self.logger.info('Start triggered')
-        if self.__capture_task is None:
-            self.__capture_task = threading.Timer(1, self.__capture)
-            self.__capture_task.start()
-            self.logger.debug('Capture scheduled...' + repr(self.__capture_task))
-        else:
-            self.logger.info('Capture already running...')
+        WebcamMotionDetector.logger.debug('Starting...')
+        with self.__start_lock:
+            self.__active = True
+            self.__check_activated()
+            self.__check_suspended()
+
+    def stop(self) -> None:
+        with self.__start_lock:
+            with self.__stop_lock:
+                try:
+                    WebcamMotionDetector.logger.debug('Stopping...')
+                except NameError:
+                    pass
+                self.__active = False
+                try:
+                    if self.__check_activated_task:
+                        self.__check_activated_task.cancel()
+                    self.__check_activated_task = None
+                except Exception as e:
+                    print('Cannot stop __check_activated_task: %s' % e, file=sys.stderr)
+                try:
+                    if self.__check_suspended_task:
+                        self.__check_suspended_task.cancel()
+                    self.__check_suspended_task = None
+                except Exception as e:
+                    print('Cannot stop __check_suspended_task: %s' % e, file=sys.stderr)
+                try:
+                    if self.__capture_task:
+                        self.__capture_task.cancel()
+                    self.__capture_task = None
+                except Exception as e:
+                    print('Cannot stop __capture_task: %s' % e, file=sys.stderr)
+
+    def restart(self):
+        self.stop()
+        time.sleep(1)
+        self.start()
 
     def get_image_event(self) -> threading.Event:
         return self.__image_event
+
+    def get_scan_results(self):
+        return self.__scan_results

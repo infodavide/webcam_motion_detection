@@ -26,7 +26,7 @@ function setRefreshTime(seconds){
 }
 function loadHealth(force, callback){
   if(healthCheckEnabled||health==null||force){
-    var serviceUrl=REST_BASE_URL+'/app/health';
+    const serviceUrl=REST_BASE_URL+'/app/health';
     jQuery.ajax({
       timeout:2000,
       type:'GET',
@@ -40,19 +40,34 @@ function loadHealth(force, callback){
         health=response;
         $('#storage_status').html(response.storage.status+'%');
         $('#memory_status').html(response.memory.sys.status+'%');
-        $('#system_status').html(response.sys.cpuLoad+'%');
-        if(response.health===0){
+        $('#system_status').html(response.sys.cpuLoad);
+        if(response.health==0){ // running
           $('.menu').css('background','green');
+          $('#status').html($.i18n('running'));
           if(typeof subscribeToTopic==='function'&&!isValid(socket)&&isValid(controller)){
             controller.init();
           }
-        }else if(response.health===-1){
+        }else if(response.health==1){ // not activated
+          $('.menu').css('background','lightgreen');
+          $('#status').html($.i18n('disabled'));
+          if(typeof subscribeToTopic==='function'&&!isValid(socket)&&isValid(controller)){
+            controller.init();
+          }
+        }else if(response.health==2){ // suspended
+          $('.menu').css('background','grey');
+          $('#status').html($.i18n('suspended'));
+          if(typeof subscribeToTopic==='function'&&!isValid(socket)&&isValid(controller)){
+            controller.init();
+          }
+        }else if(response.health==-1){ // off
           $('.menu').css('background','yellow');
-        }else{
-          if (typeof disconnectWebSocket==='function') {
+          $('#status').html($.i18n('off'));
+        }else{ // error or hardware heavy load
+          if(typeof disconnectWebSocket==='function') {
             disconnectWebSocket();
           }
           $('.menu').css('background','red');
+          $('#status').html($.i18n('error'));
         }
       },
       complete:function(){
@@ -77,58 +92,58 @@ function loadHealth(force, callback){
   }
   refreshTimeoutId=setTimeout(loadHealth,refreshTime*1000);
 }
-
 function showDisk(){
   if(!isValid(health)){
     console.log('health is not valid');
     return;
   }
   // header
-  var content='<h1>Disk</h1>';
+  var content='<h1>'+$.i18n('storage')+'</h1>';
   content+=addTableHeader();
-  content+=addTableRow('Usage','The greater percentage of used space on disks',health.storage.status+'%');
+  content+=addTableRow($.i18n('usage'), $.i18n('the_greater_percentage_of_used_space'),health.storage.status+'%');
   // disks
   for(var i=0;i<health.storage.disks.length;i++){
-    var item=health.storage.disks[i];
-    var text='Status: '+item.status+'%<br/>';
-    text+='Free space: '+item.usable+'<br/>';
-    text+='Total space: '+item.total+'<br/>';
-    text+='Used space: '+item.used;
-    content+=addTableRow(item.name,'The path or name of the disk or partition',text);
+    const item=health.storage.disks[i];
+    var text=$.i18n('status')+': '+item.status+'%<br/>';
+    text+=$.i18n('free_space')+': '+item.usable+'<br/>';
+    text+=$.i18n('total_space')+': '+item.total+'<br/>';
+    text+=$.i18n('used_space')+': '+item.used;
+    content+=addTableRow(item.name,$.i18n('the_path_or_name_of_the_partition'),text);
   }
   $('#content').html(content);
 }
-
 function showMemory(){
   if(!isValid(health)){
     console.log('health is not valid');
     return;
   }
   // header
-  var content='<h1>Memory</h1>';
+  var content='<h1>'+$.i18n('memory')+'</h1>';
   content+=addTableHeader();
   // system
-  content+=addTableRow('Usage','The percentage of used memory space',health.memory.sys.status+'%');
-  content+=addTableRow('Free memory','The amount of free memory on the system',health.memory.sys.free);
-  content+=addTableRow('Total memory','The total amount of memory on the system',health.memory.sys.total);
-  content+=addTableRow('Used memory','The amount of used memory',health.memory.sys.used);
+  content+=addTableRow($.i18n('usage'),$.i18n('the_percentage_of_used_space'),health.memory.sys.status+'%');
+  content+=addTableRow($.i18n('free_space'),$.i18n('the_amount_of_free_space'),health.memory.sys.free);
+  content+=addTableRow($.i18n('total_space'),$.i18n('the_total_amount_of_space'),health.memory.sys.total);
+  content+=addTableRow($.i18n('used_space'),$.i18n('the_amount_of_used_space'),health.memory.sys.used);
   // swap
-  content+=addTableRow('Total Swap memory','The total amount of swap memory',health.memory.swap.total);
-  content+=addTableRow('Used Swap memory','The amount of used swap memory',health.memory.swap.used);
+  content+=addTableRow($.i18n('total_swap_space'),$.i18n('the_total_amount_of_swap_space'),health.memory.swap.total);
+  content+=addTableRow($.i18n('used_swap_space'),$.i18n('the_amount_of_used_swap_space'),health.memory.swap.used);
   $('#content').html(content);
 }
-
 function showSystem(){
   if(!isValid(health)){
     console.log('health is not valid');
     return;
   }
   // header
-  var content='<h1>System</h1>';
+  var content='<h1>'+$.i18n('system')+'</h1>';
   content+=addTableHeader();
-  content+=addTableRow('Logical processors','The number of logical processors',health.sys.processors);
-  content+=addTableRow('Uptime','The uptime',health.sys.uptime);
-  content+=addTableRow('CPU load','The greater percentage of used CPU',health.sys.cpuLoad+'%');
-  content+=addTableRow('CPU temperature','The CPU temperature',health.sys.cpuTemperature+'°');
+  content+=addTableRow($.i18n('processors'),$.i18n('the_number_of_processors'),health.sys.processors);
+  content+=addTableRow($.i18n('uptime'),$.i18n('the_duration_since_start'),health.sys.uptime);
+  content+=addTableRow($.i18n('cpu_load'),$.i18n('the_cpu_load'),health.sys.cpuLoad+'%');
+  content+=addTableRow($.i18n('cpu_temperature'),$.i18n('the_cpu_temperature'),health.sys.cpuTemperature+'°');
+  content+=addTableRow($.i18n('mac_address'),$.i18n('the_mac_address'),health.sys.macAddress);
+  content+=addTableRow($.i18n('ipv4_address'),$.i18n('the_ipv4_address'),health.sys.ipv4Address);
+  content+=addTableRow($.i18n('ssid'),$.i18n('the_ssid'),health.sys.ssid);
   $('#content').html(content);
 }

@@ -1,0 +1,13 @@
+{
+	"@metadata": {
+		"authors": [
+			"David"
+		],
+		"last-updated": "2020-09-01",
+		"locale": "en"
+	},
+	"appname-title": "Webcam motion detector",
+	"mac-address": "MAC address",
+	"comment": "comment",
+	"refresh": "refresh"
+}

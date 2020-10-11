@@ -1,11 +1,40 @@
 const BASE_URL=window.location.protocol.startsWith('file') ? 'http://localhost:8080' : window.location.protocol+'//'+document.domain+':'+location.port;
 const REST_BASE_URL=BASE_URL+'/rest';
-const DEFAULT_CONTENT='projects';
+const DEFAULT_CONTENT='home';
 const cookieOptions={
   path: '/',
   expires: 7
 };
 var controller=null;
+function capitalize(value) {
+  return value.charAt(0).toUpperCase()+value.slice(1);
+}
+var applyingTranslation=false;
+function setLanguage(value){
+  if (!isValid(value)){
+    return;
+  }
+  $.i18n().locale=value;
+  Cookies.set('language',value,cookieOptions);
+}
+function applyTranslations(){
+  if(applyingTranslation){
+    return;
+  }
+  applyingTranslation=true;
+  $('html').i18n();
+  applyingTranslation=false;
+}
+function applyTranslation(e){
+  if(applyingTranslation){
+    return;
+  }
+  if(e.target&&e.target.id){
+    applyingTranslation=true;
+    $('#'+e.target.id).i18n();
+    applyingTranslation=false;
+  }
+}
 $(document).ready(function(){
   var _old_hide=$.fn.hide;
   $.fn.hide=function(){
@@ -28,8 +57,28 @@ $(document).ready(function(){
   });
   $.timeago.settings.refreshMillis=15000;
   $('time.timeago').timeago();
+  $.i18n().load({
+    'en': 'js/i18n/en.json',
+    'it': 'js/i18n/it.json',
+    'fr': 'js/i18n/fr.json'
+   }).done(function() {
+    console.log('i18n loaded');
+    var userLanguage=Cookies.get('language');
+    if (!isValid(userLanguage)){
+      userLanguage=navigator.language||navigator.userLanguage;
+      if (isValid(userLanguage)){
+        userLanguage=userLanguage.split('-')[0];
+        $.i18n().locale=userLanguage;
+      }
+    }
+    console.log('Language: '+$.i18n().locale);
+    applyTranslations();
+    $('body').bind('DOMSubtreeModified', function(e){
+      applyTranslation(e);
+    });
+  });
   $.ajaxSetup({
-    timeout:10000,
+    timeout:60000,
     error:function(x,status,error){
       handleAjaxError(x,status,error);
     }
@@ -47,35 +96,35 @@ $(document).ready(function(){
     $('#btn_hamburger').toggleClass('toggled');
   });
   $('#content').click(function(){
-    var menubar_wrapper=$('#menubar_wrapper');
+    const menubar_wrapper=$('#menubar_wrapper');
     if(menubar_wrapper.hasClass('toggled')){
       menubar_wrapper.toggleClass('toggled');
     }
-    var wrapper=$('#wrapper');
+    const wrapper=$('#wrapper');
     if(wrapper.hasClass('toggled')){
       wrapper.toggleClass('toggled');
       hamburger_cross();
     }
-    var btn_hamburger=$('#btn_hamburger');
+    const btn_hamburger=$('#btn_hamburger');
     if(btn_hamburger.hasClass('toggled')){
       btn_hamburger.toggleClass('toggled');
     }
   });
 });
 function handleAjaxError(x,status,error){
-  // console.log('x: '+JSON.stringify(x));
-  // console.log('status: '+JSON.stringify(status));
-  // console.log('error: '+JSON.stringify(error));
+  //console.log('x: '+JSON.stringify(x));
+  //console.log('status: '+JSON.stringify(status));
+  //console.log('error: '+JSON.stringify(error));
   var message;
   if(isValid(x.status)&&x.status==200){
     return;
   }
   if(isValid(x.status)&&x.status==401){
-    message='Unauthorized: Authentication is required';
+    message=$.i18n('unauthorized')+': '+$.i18n('authentication_required');
   }else if(isValid(x.responseText)&&x.responseText!==''){
-    message='Error code: '+x.status+'<br/>Message: '+x.responseText;
+    message=$.i18n('error_code')+': '+x.status+'<br/>'+$.i18n('message')+': '+x.responseText;
   }else if(isValid(error)&&error!==''){
-    message='Error code: '+x.status+'<br/>Message: '+error;
+    message=$.i18n('error_code')+': '+x.status+'<br/>'+$.i18n('message')+': '+error;
   }
   if(isValid(x.status)&&x.status!=400){
     showError(message);
@@ -101,24 +150,24 @@ function showAlert(message,type){
   }
   // we clone the template for alert messages
   var alert_message=alert_messages.find('#alert_message_template').clone();
-  var timeago=alert_message.find('time');
+  const timeago=alert_message.find('time');
   timeago.attr('datetime', new Date().toISOString())
   timeago.timeago();
   alert_message.removeAttr('id');
   alert_message.removeClass('alert-success alert-info alert-warning alert-danger');
-  var icon=alert_message.find('.icon')
+  const icon=alert_message.find('.icon')
   icon.removeClass('info-icon warning-icon error-icon');
-  var panel=alert_message.find('.message')
+  const panel=alert_message.find('.message')
   if(type==-1){
-    panel.attr('title','Error message');
+    panel.attr('title',$.i18n('error'));
     icon.addClass('error-icon');
     alert_message.addClass('alert-danger');
   }else if(type==0){
-    panel.attr('title','Warning message');
+    panel.attr('title',$.i18n('warning'));
     icon.addClass('warning-icon');
     alert_message.addClass('alert-warning');
   }else{
-    panel.attr('title','Information message');
+    panel.attr('title',$.i18n('information'));
     icon.addClass('info-icon');
     alert_message.addClass('alert-info');
   }
@@ -160,20 +209,26 @@ function showContent(newContent){
   Cookies.set('currentPage',newContent,cookieOptions);
   // console.log(newContent);
   controller=null;
-  if(newContent=='home'){
-    controller=homeController;
+  if(newContent=='detection_zone'){
+    controller=new DetectionZoneController();
+  }else if(newContent=='detection_periods'){
+    controller=new DetectionPeriodsController();
+  }else if(newContent=='detection_filters'){
+    controller=new DetectionFiltersController();
   }else if(newContent=='system'){
     loadHealth(true,showSystem);
   }else if(newContent=='disk'){
     loadHealth(true,showDisk);
   }else if(newContent=='memory'){
     loadHealth(true,showMemory);
+  }else if(newContent=='network'){
+    loadHealth(true,showNetwork);
   }else if(newContent=='settings'){
-    controller=settingController;
+    controller=new SettingsController();
   }else if(newContent=='help'){
     showHelp();
+  }else{
+    controller=new HomeController();
   }
-  if(controller!=null){
-    controller.init();
-  }
+  $('#content').i18n();
 }

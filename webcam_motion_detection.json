@@ -1,0 +1,69 @@
+{
+    "activation_periods": [
+        [
+            "00:00",
+            "00:00"
+        ],
+        [
+            "00:00",
+            "00:00"
+        ],
+        [
+            "00:00",
+            "00:00"
+        ],
+        [
+            "00:00",
+            "00:00"
+        ],
+        [
+            "01:00",
+            "00:00"
+        ],
+        [
+            "02:00",
+            "00:00"
+        ],
+        [
+            "00:00",
+            "00:00"
+        ]
+    ],
+    "email": "davide@i9are.it",
+    "extensions": {
+        "FtpUploader": {
+            "enabled": false,
+            "password": "",
+            "port": 21,
+            "server": "ftp.domain.com"
+        },
+        "SmtpNotifier": {
+            "enabled": true,
+            "password": "",
+            "port": 25,
+            "server": "smtp.free.fr"
+        }
+    },
+    "http_port": 8080,
+    "log_level": "DEBUG",
+    "mac_addresses": {
+        "40:40:A7:92:F5:A2": "Xperia Z5 compact",
+        "68:F7:28:65:BA:88": "milano.intranet"
+    },
+    "notification_delay": 5,
+    "password": "21232f297a57a5a743894a0e4a801fc3",
+    "temp_dir": "/tmp/webcam_motion_detection",
+    "test_enabled": true,
+    "user": "admin",
+    "user_display_name": "Administrator",
+    "version": "1.0",
+    "video_device": "Camera 1",
+    "video_device_address": "0",
+    "window_enabled": false,
+    "zone": [
+        30,
+        30,
+        77,
+        70
+    ]
+}

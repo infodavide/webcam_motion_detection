@@ -18,6 +18,9 @@ function addClearCustomValidityHandler(formId){
 }
 function handleValidationError(prefix,x){
   var message=undefined;
+  if(isValid(x.status)&&x.status==200){
+    return;
+  }
   if(isValid(x.responseText)){
     message=x.responseText.trim();
     if(message.startsWith(':')){
@@ -31,10 +34,10 @@ function handleValidationError(prefix,x){
     if(parts.length>1){
       // console.log(parts[0]);
       // console.log(capitalizeFirst(parts[1]));
-      var input=$('#'+prefix+'_'+parts[0])[0];
+      const input=$('#'+prefix+'_'+parts[0])[0];
       if(isValid(input)){
         input.setCustomValidity(capitalizeFirst(parts[1]));
-        var form=$('#'+prefix+'_form')[0];
+        const form=$('#'+prefix+'_form')[0];
         if(isValid(form)){
           form.reportValidity();
           show=false
@@ -45,9 +48,9 @@ function handleValidationError(prefix,x){
       showError('Message: '+message);
     }
   }else if(isValid(message)){
-    showError('Error code: '+x.status+'<br/>Message: '+message);
+    showError($.i18n('error_code')+': '+x.status+'<br/>'+$.i18n('message')+': '+message);
   }else{
-    showError('Error code: '+x.status);
+    showError($.i18n('error_code')+': '+x.status);
   }
 }
 function capitalizeFirst(text){
@@ -63,15 +66,15 @@ function isNotEmpty(data){
   return data!==null && typeof data!=='undefined' && data!=='null' && data!=='';
 }
 function addTableHeader(){
-  var content='<div class="row row_header">';
-  content+='<div class="column col-lg-4" title="The name">Name</div>';
-  content+='<div class="column col-lg-8" title="The value">Value</div>';
+  var content='<div class="row row-header">';
+  content+='<div class="column column-header col-lg-4 capitalized" data-i18n="name"></div>';
+  content+='<div class="column column-header col-lg-8 capitalized" data-i18n="value"></div>';
   content+='</div>';
   return content;
 }
 function addTableRow(label,title,value){
   var content='<div class="row">';
-  content+='<div class="column col-lg-4" title="'+title+'">'+label+':</div>';
+  content+='<div class="column col-lg-4 capitalized" title="'+title+'">'+label+':</div>';
   content+='<div class="column col-lg-8">';
   if(isValid(value)){
     content+=value;
@@ -81,9 +84,9 @@ function addTableRow(label,title,value){
   return content;
 }
 function addPropertiesHeader(){
-  var content='<div class="row row_header">';
-  content+='<div class="column col-lg-4" title="The property">Property</div>';
-  content+='<div class="column col-lg-8" title="The value">Value</div>';
+  var content='<div class="row row-header">';
+  content+='<div class="column column-header col-lg-4 capitalized" data-i18n="property"></div>';
+  content+='<div class="column column-header col-lg-8 capitalized" data-i18n="value"></div>';
   content+='</div>';
   return content;
 }
@@ -121,18 +124,18 @@ function buildRemoteFileInputOptions(fieldId,accept,required,disabled){
 function buildLogLevelInputOptions(fieldId,required,disabled){
   var options=buildInputOptions(fieldId,'select',required,disabled);
   options.items=[];
-  options.items.push(buildSelectOption('DEBUG','Debug'));
-  options.items.push(buildSelectOption('INFO','Information'));
-  options.items.push(buildSelectOption('WARN','Warning'));
-  options.items.push(buildSelectOption('ERROR','Error'));
+  options.items.push(buildSelectOption('DEBUG',$.i18n('debug')));
+  options.items.push(buildSelectOption('INFO',$.i18n('information')));
+  options.items.push(buildSelectOption('WARN',$.i18n('warning')));
+  options.items.push(buildSelectOption('ERROR',$.i18n('error')));
   return options;
 }
 function buildThreadPriorityInputOptions(fieldId,required,disabled){
   var options=buildInputOptions(fieldId,'select',required,disabled);
   options.items=[];
-  options.items.push(buildSelectOption('5','Normal'));
-  options.items.push(buildSelectOption('1','Low'));
-  options.items.push(buildSelectOption('10','High'));
+  options.items.push(buildSelectOption('5',$.i18n('normal')));
+  options.items.push(buildSelectOption('1',$.i18n('low')));
+  options.items.push(buildSelectOption('10',$.i18n('high')));
   return options;
 }
 function buildInputOptions(fieldId,type,required,disabled,min,max){
@@ -148,9 +151,15 @@ function buildInputOptions(fieldId,type,required,disabled,min,max){
 function buildBooleanInputOptions(fieldId,required,disabled){
   var options=buildInputOptions(fieldId,'select',required,disabled);
   options.items=[];
-  options.items.push(buildSelectOption('false','No'));
-  options.items.push(buildSelectOption('true','Yes'));
+  options.items.push(buildSelectOption('false',$.i18n('no')));
+  options.items.push(buildSelectOption('true',$.i18n('yes')));
   return options;
+}
+function capitalize(value){
+  if (!isValid(value)){
+    return value;
+  }
+  return value.charAt(0).toUpperCase()+value.slice(1);
 }
 function buildInput(title,value,options){
   var content='<';
@@ -208,36 +217,16 @@ function buildInput(title,value,options){
   content+='>';
   if(isValid(options.type)&&options.type=='select'){
     if(isValid(options.items)&&options.items.length>0){
-      var len=options.items.length;
+      const len=options.items.length;
       for(var i=0; i<len; i++){
         content+='<option value="'+options.items[i].value+'"';
         if (value===options.items[i].value||String(value)===String(options.items[i].value)) {
           content+=" selected";
         }
-        content+=">"+options.items[i].label+"</option>";
+        content+=">"+capitalize(options.items[i].label)+"</option>";
       }
     }
     content+='</select>';
   }
-  return content;
-}
-function addProperty(label,title,value,editable,options){
-  var useForm=isValid(editable) && editable;
-  var rowClasses=useForm ? 'form-row' : 'row';
-  var columnClasses=useForm ? 'form-group column col-lg-8' : 'column col-lg-8';
-  var content='<div class="'+rowClasses+'">';
-  content+='<div class="column col-lg-4" title="'+title+'">'+label;
-  if(editable&&isValid(options)&&isValid(options.required)&&options.required){
-    content+=' (*)';
-  }
-  content+=':</div>';
-  content+='<div class="'+columnClasses+'" title="'+title+'">';
-  if(useForm){
-    content+=buildInput(title,value,options);
-  }else if(isValid(value)){
-    content+=value;
-  }
-  content+='</div>';
-  content+='</div>';
   return content;
 }
