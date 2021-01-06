@@ -7,7 +7,7 @@
 		"locale": "fr"
 	},
 	"appname-title": "Webcam motion detector",
-	"mac-address": "Adresse MAC",
+	"mac_address": "Adresse MAC",
 	"comment": "commentaire",
 	"refresh": "actualiser"
 }

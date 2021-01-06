@@ -1,0 +1,13 @@
+<div id="video_frame_div">
+    <h1 data-i18n="zone"></h1>
+    <p data-i18n="zone_description"></p>
+    <img id="video_frame" class="video" style="-webkit-user-select: none;" src="'+{{BASE_URL}}+'/frame"/>
+    {{#if (isAdmin)}}
+    <form id="coordinates_form" onsubmit="controller._save();return false;">
+        <div style="margin-top:16px;">
+            <button type="submit" id="btn_submit_coordinates" class="btn btn-primary mb-2" data-i18n="save"></button>
+            <button id="btn_cancel_coordinates" class="btn btn-primary mb-2" onclick="controller._cancel();" data-i18n="cancel"></button>
+        </div>
+    </form>
+    {{/if}}
+</div>

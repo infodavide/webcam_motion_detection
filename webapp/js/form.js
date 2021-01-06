@@ -65,31 +65,6 @@ function isValid(data){
 function isNotEmpty(data){
   return data!==null && typeof data!=='undefined' && data!=='null' && data!=='';
 }
-function addTableHeader(){
-  var content='<div class="row row-header">';
-  content+='<div class="column column-header col-lg-4 capitalized" data-i18n="name"></div>';
-  content+='<div class="column column-header col-lg-8 capitalized" data-i18n="value"></div>';
-  content+='</div>';
-  return content;
-}
-function addTableRow(label,title,value){
-  var content='<div class="row">';
-  content+='<div class="column col-lg-4 capitalized" title="'+title+'">'+label+':</div>';
-  content+='<div class="column col-lg-8">';
-  if(isValid(value)){
-    content+=value;
-  }
-  content+='</div>';
-  content+='</div>';
-  return content;
-}
-function addPropertiesHeader(){
-  var content='<div class="row row-header">';
-  content+='<div class="column column-header col-lg-4 capitalized" data-i18n="property"></div>';
-  content+='<div class="column column-header col-lg-8 capitalized" data-i18n="value"></div>';
-  content+='</div>';
-  return content;
-}
 function buildSelectOption(value,label){
   var result={};
   result.value=value;

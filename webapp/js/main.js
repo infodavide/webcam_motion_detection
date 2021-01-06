@@ -1,39 +1,24 @@
-const BASE_URL=window.location.protocol.startsWith('file') ? 'http://localhost:8080' : window.location.protocol+'//'+document.domain+':'+location.port;
+function basename(path) {
+  return path.replace(/.*\//, '');
+}
+function dirname(path) {
+  return path.match(/.*\//)[0].slice(0,-1);
+}
+const BASE_URL=window.location.protocol+'//'+document.domain+':'+location.port;
 const REST_BASE_URL=BASE_URL+'/rest';
 const DEFAULT_CONTENT='home';
 const cookieOptions={
   path: '/',
   expires: 7
 };
-var controller=null;
+Handlebars.registerHelper('BASE_URL',function(options){
+  return BASE_URL;
+});
+Handlebars.registerHelper('REST_BASE_URL',function(options){
+  return REST_BASE_URL;
+});
 function capitalize(value) {
   return value.charAt(0).toUpperCase()+value.slice(1);
-}
-var applyingTranslation=false;
-function setLanguage(value){
-  if (!isValid(value)){
-    return;
-  }
-  $.i18n().locale=value;
-  Cookies.set('language',value,cookieOptions);
-}
-function applyTranslations(){
-  if(applyingTranslation){
-    return;
-  }
-  applyingTranslation=true;
-  $('html').i18n();
-  applyingTranslation=false;
-}
-function applyTranslation(e){
-  if(applyingTranslation){
-    return;
-  }
-  if(e.target&&e.target.id){
-    applyingTranslation=true;
-    $('#'+e.target.id).i18n();
-    applyingTranslation=false;
-  }
 }
 $(document).ready(function(){
   var _old_hide=$.fn.hide;
@@ -57,64 +42,17 @@ $(document).ready(function(){
   });
   $.timeago.settings.refreshMillis=15000;
   $('time.timeago').timeago();
-  $.i18n().load({
-    'en': 'js/i18n/en.json',
-    'it': 'js/i18n/it.json',
-    'fr': 'js/i18n/fr.json'
-   }).done(function() {
-    console.log('i18n loaded');
-    var userLanguage=Cookies.get('language');
-    if (!isValid(userLanguage)){
-      userLanguage=navigator.language||navigator.userLanguage;
-      if (isValid(userLanguage)){
-        userLanguage=userLanguage.split('-')[0];
-        $.i18n().locale=userLanguage;
-      }
-    }
-    console.log('Language: '+$.i18n().locale);
-    applyTranslations();
-    $('body').bind('DOMSubtreeModified', function(e){
-      applyTranslation(e);
-    });
-  });
   $.ajaxSetup({
     timeout:60000,
     error:function(x,status,error){
       handleAjaxError(x,status,error);
     }
   });
-  var trigger=$('.hamburger');
-  trigger.click(function(){
-    hamburger_cross();
-  });
   $("[data-hide]").on("click", function(){
     $(this).closest("." + $(this).attr("data-hide")).hide();
   });
-  $('[data-toggle="offcanvas"]').click(function(){
-    $('#wrapper').toggleClass('toggled');
-    $('#menubar_wrapper').toggleClass('toggled');
-    $('#btn_hamburger').toggleClass('toggled');
-  });
-  $('#content').click(function(){
-    const menubar_wrapper=$('#menubar_wrapper');
-    if(menubar_wrapper.hasClass('toggled')){
-      menubar_wrapper.toggleClass('toggled');
-    }
-    const wrapper=$('#wrapper');
-    if(wrapper.hasClass('toggled')){
-      wrapper.toggleClass('toggled');
-      hamburger_cross();
-    }
-    const btn_hamburger=$('#btn_hamburger');
-    if(btn_hamburger.hasClass('toggled')){
-      btn_hamburger.toggleClass('toggled');
-    }
-  });
 });
 function handleAjaxError(x,status,error){
-  //console.log('x: '+JSON.stringify(x));
-  //console.log('status: '+JSON.stringify(status));
-  //console.log('error: '+JSON.stringify(error));
   var message;
   if(isValid(x.status)&&x.status==200){
     return;
@@ -142,7 +80,6 @@ function showAlert(message,type){
     clearAlerts();
     return;
   }
-  console.log(message);
   var alert_messages=$('#alert_messages');
   while(alert_messages.children('div').length > 4){
     // we keep the fist one as it is the template for alert messages
@@ -187,42 +124,20 @@ function showInfo(message){
 function showWarning(message){
   showAlert(message,0);
 }
-function hamburger_cross(){
-  var trigger=$('.hamburger'),overlay=$('.overlay');
-  if(trigger.hasClass('is-open')){
-    overlay.hide();
-    trigger.removeClass('is-open');
-    trigger.addClass('is-closed');
-  }else{
-    overlay.show();
-    trigger.removeClass('is-closed');
-    trigger.addClass('is-open');
-  }
-}
+var controller;
 function showContent(newContent){
-  if(typeof unsubscribeToTopic==='function'){
-    unsubscribeToTopic('');
-  }
   if(newContent===null||typeof newContent=='undefined'||newContent==='null'){
     newContent=DEFAULT_CONTENT;
   }
   Cookies.set('currentPage',newContent,cookieOptions);
-  // console.log(newContent);
-  controller=null;
   if(newContent=='detection_zone'){
     controller=new DetectionZoneController();
   }else if(newContent=='detection_periods'){
     controller=new DetectionPeriodsController();
   }else if(newContent=='detection_filters'){
     controller=new DetectionFiltersController();
-  }else if(newContent=='system'){
-    loadHealth(true,showSystem);
-  }else if(newContent=='disk'){
-    loadHealth(true,showDisk);
-  }else if(newContent=='memory'){
-    loadHealth(true,showMemory);
-  }else if(newContent=='network'){
-    loadHealth(true,showNetwork);
+  }else if(newContent=='status'){
+    controller=new StatusController();
   }else if(newContent=='settings'){
     controller=new SettingsController();
   }else if(newContent=='help'){
@@ -230,5 +145,30 @@ function showContent(newContent){
   }else{
     controller=new HomeController();
   }
-  $('#content').i18n();
 }
+$(document).ready(function(){
+  console.log('Initializing...');
+  var path=BASE_URL+'/templates/header.html';
+  $.ajax({
+    url: path,
+    cache:true,
+    success:function(data){
+      var templateInput={};
+      var template=Handlebars.compile(data);
+      $('#header').html(template(templateInput));
+      if(menuController){
+        menuController.update();
+      }
+    }
+  });
+  path=BASE_URL+'/templates/footer.html';
+  $.ajax({
+    url: path,
+    cache:true,
+    success:function(data){
+      var templateInput={};
+      var template=Handlebars.compile(data);
+      $('#footer').html(template(templateInput));
+    }
+  });
+});

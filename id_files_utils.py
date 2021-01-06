@@ -5,7 +5,12 @@ import shutil
 import sys
 
 
-def rm_children(path):
+def rm_children(path) -> None:
+    """
+    Delete all files and directories recursively and keep the given directory.
+    :param path: the root directory used for deletion
+    :return:
+    """
     if not os.path.isdir(path):
         return
     for entry in os.listdir(path):

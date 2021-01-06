@@ -1,0 +1,17 @@
+[Unit]
+Description=Webcam motion detection
+After=network.target
+
+[Service]
+Type=simple
+User=wmd
+Group=wmd
+PIDFile=/opt/webcam_motion_detection/wmd.pid
+WorkingDirectory=/opt/webcam_motion_detection
+ExecStart=/opt/webcam_motion_detection/startup.sh &
+ExecStop=/opt/webcam_motion_detection/shutdown.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

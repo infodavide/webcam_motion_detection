@@ -11,13 +11,31 @@ T = TypeVar('T', int, float, str, datetime, bool, Enum)
 
 class Setting(Generic[T]):
     def __init__(self, value: T, min_length: int = None, max_length: int = None, read_only: bool = False):
+        """
+        Initialize the setting with initial value and constraints.
+        :param value: the initial value
+        :param min_length: the min value or min length
+        :param max_length: the max value or max length
+        :param read_only: the flag describing if setting is immutable
+        """
         self._min_length: int = min_length
         self._max_length: int = max_length
         self._value: T = value
         self._read_only: bool = read_only
         self._data_type: type = type(value)
 
+    def clone(self):
+        r: Setting = Setting(self._value, self._min_length, self._max_length, self._read_only)
+        r._data_type = self._data_type
+        return r
+
+
     def parse(self, value: any) -> None:
+        """
+        Parse the value.
+        :param value: the value
+        :return:
+        """
         if value is None:
             # noinspection PyTypeChecker
             self.set_value(None)
@@ -48,9 +66,18 @@ class Setting(Generic[T]):
             self.set_value(value)
 
     def get_value(self) -> T:
+        """
+        Return the value.
+        :return: the value
+        """
         return self._value
 
     def set_value(self, value: T) -> None:
+        """
+        Set the value.
+        :param value: the value
+        :return:
+        """
         if self._read_only:
             return
         if value is None:
@@ -74,15 +101,31 @@ class Setting(Generic[T]):
         self._value = value
 
     def get_min_length(self) -> int:
+        """
+        Return the min value or min length.
+        :return: the min value or min length
+        """
         return self._min_length
 
     def get_max_length(self) -> int:
+        """
+        Return the max value or max length.
+        :return: the max value or max length
+        """
         return self._max_length
 
     def get_read_only(self) -> bool:
+        """
+        Return the flag describing if setting is immutable.
+        :return: the flag
+        """
         return self._read_only
 
     def to_json_object(self) -> dict:
+        """
+        Return the dict object used to get the JSON view.
+        :return: the dict object
+        """
         result: dict = dict()
         if self._max_length:
             result['max_length'] = self._max_length
@@ -97,9 +140,17 @@ class Setting(Generic[T]):
         return result
 
     def to_json(self) -> str:
+        """
+        Return the JSON view.
+        :return: the JSON data
+        """
         return json.dumps(self.to_json_object())
 
     def __str__(self) -> str:
+        """
+        Return the textual view.
+        :return: the text
+        """
         if self._value is None:
             return ''
         if isinstance(self._value, bool):
@@ -117,8 +168,18 @@ DictOfSettings = Dict[str, Setting]
 
 
 class Settings(DictOfSettings):
+    def clone(self):
+        r: Settings = Settings()
+        for k in sorted(self.keys()):
+            r[k] = self[k]
+        return r
+
     def parse(self, value: any) -> None:
-        # Expecting something like: { "name": "value", etc.
+        """
+        Parse the dict object or JSON representation like: { "name": "value", etc.
+        :param value: the dict object or JSON
+        :return:
+        """
         obj = None
         if isinstance(value, Dict):
             obj = value
@@ -139,15 +200,46 @@ class Settings(DictOfSettings):
                 raise ValueError('wrong setting: ' + k + ', ' + str(ve))
 
     def to_json_object(self) -> dict:
+        """
+        Return the dict object used to get the JSON view.
+        :return: the dict object
+        """
         result: dict = dict()
         # noinspection PyTypeChecker
-        for k, s in self.items():
-            setting: Setting = cast(Setting, s)
+        for k in sorted(self.keys()):
+            setting: Setting = cast(Setting, self[k])
             result[k] = setting.get_value()
         return result
 
+    def to_full_json_object(self) -> dict:
+        """
+        Return the dict object used to get the JSON definition of each setting.
+        :return: the dict object including the definition of each setting
+        """
+        result: dict = dict()
+        # noinspection PyTypeChecker
+        for k in sorted(self.keys()):
+            setting: Setting = cast(Setting, self[k])
+            result[k] = setting.to_json_object()
+        return result
+
     def to_json(self) -> str:
+        """
+        Return the JSON view.
+        :return: the JSON data
+        """
         return json.dumps(self.to_json_object())
 
+    def to_full_json(self) -> str:
+        """
+        Return the JSON view including the definition of each setting.
+        :return: the JSON data including the definition of each setting
+        """
+        return json.dumps(self.to_full_json_object())
+
     def __str__(self) -> str:
+        """
+        Return the textual view.
+        :return: the text
+        """
         return self.to_json()

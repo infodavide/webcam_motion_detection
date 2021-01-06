@@ -1,0 +1,89 @@
+{{#registerPartial "detection_filters_values-partial"}}
+{{#each values}}
+<div class="row">
+    <div class="column col-lg-2">
+{{#if (isAdmin)}}
+    <a id="btn_edit_filter_{{@key}}" class="edit-icon clickable d-none d-lg-block d-xl-block" data-i18n="[title]edit" onclick="controller._edit(\'{{@key}}\')"></a>
+    <a id="btn_delete_filter_{{@key}}" class="delete-icon clickable" data-i18n="[title]delete" data-toggle="modal" data-callback="controller._remove(\'{{@key}}\')" data-i18n="[data-title]confirm_deletion" data-message="delete {{@key}}?" data-target="#confirmation_modal"></a>
+{{/if}}
+    </div>
+    <div class="column col-lg-5" data-i18n="[title]mac_address" style="display: inline-flex;align-items: center;">{{@key}}</div>
+    <div class="column col-lg-5" data-i18n="[title]comment" style="display: inline-flex;align-items: center;">{{this}}</div>
+</div>
+{{else}}
+<div class="row"><div class="column col-lg-12" data-i18n="no_filter" style="text-transform: capitalize;"></div></div>
+{{/each}}
+{{/registerPartial}}
+{{#registerPartial "detection_filters_available_hosts-partial"}}
+{{#each availableHosts}}
+<div class="row">
+    <div class="column col-lg-1">
+{{#if (isAdmin)}}
+{{#ifNotEmpty this.mac}}
+    <a id="btn_add_available_host_filter_{{@key}}" class="add-icon clickable d-none d-lg-block d-xl-block" data-i18n="[title]add" onclick="controller._addAvailableHost({{@key}})"></a>
+{{/ifNotEmpty}}
+{{/if}}
+    </div>
+    <div class="column col-lg-3">{{this.ipv4}}</div>
+    <div class="column col-lg-2">{{this.mac}}</div>
+    <div class="column col-lg-3">{{this.hostname}}</div>
+    <div class="column col-lg-3">{{this.vendor}}</div>
+</div>
+{{else}}
+<div class="row"><div class="column col-lg-12" data-i18n="no_available_host" style="text-transform: capitalize;"></div></div>
+{{/each}}
+{{/registerPartial}}
+<div style="margin-top:16px;">
+    <h1 data-i18n="filters"></h1>
+    <p data-i18n="filters_description"></p>
+    {{#if (isAdmin)}}
+      <form id="filters_form" onsubmit="controller._save();return false;">
+    {{/if}}
+    <div class="row row-header">
+        <div class="column col-lg-2 col-header"></div>
+        <div class="column col-lg-5 col-header" data-i18n="mac_address"></div>
+        <div class="column col-lg-5 col-header" data-i18n="comment"></div>
+    </div>
+    {{#if (isAdmin)}}
+      <div class="row">
+        <div class="column col-lg-2" data-i18n="[title]save">
+            <a id="btn_save_filter" class="save-icon clickable d-none d-lg-block d-xl-block" data-i18n="[title]save" onclick="controller._add();"></a>
+        </div>
+        <div class="column col-lg-5" data-i18n="[title]mac_address_like" id="filter_id_div" style="display: inline-flex;align-items: center;">
+        </div>
+<script>
+    var options=buildInputOptions('filter_id','',false,!isAdmin,17,17);
+    options.pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$";
+    $('#filter_id_div').html(buildInput($.i18n('mac_address'),'',options));
+</script>
+        <div class="column col-lg-5" data-i18n="[title]comment" id="filter_value_div" style="display: inline-flex;align-items: center;">
+        </div>
+<script>
+    var options=buildInputOptions('filter_value','',false,!isAdmin,0,128);
+    $('#filter_value_div').html(buildInput($.i18n('comment'),'',options));
+</script>
+      </div>
+    {{/if}}
+    <div id="filters_values">
+         {{> detection_filters_values-partial}}
+    </div>
+    {{#if (isAdmin)}}
+        <div style="margin-top:16px;">
+            <button type="submit" id="btn_submit_filters" class="btn btn-primary mb-2" data-i18n="save"></button>
+            <button id="btn_cancel_filters" class="btn btn-primary mb-2" onclick="controller._cancel();" data-i18n="cancel"></button>
+        </div>
+      </form>
+    {{/if}}
+    </div>
+    <div style="margin-top:15px;"><h1 data-i18n="available_hosts"></h1>
+        <div class="row row-header">
+            <div class="column col-lg-1 col-header"></div>
+            <div class="column col-lg-3 col-header" data-i18n="ip_address"></div>
+            <div class="column col-lg-2 col-header" data-i18n="mac_address"></div>
+            <div class="column col-lg-3 col-header" data-i18n="hostname"></div>
+            <div class="column col-lg-3 col-header" data-i18n="vendor"></div>
+    </div>
+    <div id="filters_available_hosts">
+        {{> detection_filters_available_hosts-partial}}
+    </div>
+</div>

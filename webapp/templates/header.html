@@ -1,0 +1,141 @@
+<div id="login_modal" class="modal fullscreen fade" role="dialog">
+  <div class="modal-dialog modal-login modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title" data-i18n="login"></h4>
+        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="signin_form" onsubmit="login('login_modal');return false;">
+          <div class="form-group">
+            <em class="fa fa-user"></em> <input type="text" id="signin_username" oninput="clearCustomValidity('signin_form');" autocomplete="name"
+              class="form-control" data-i18n="[placeholder]username" required="required">
+          </div>
+          <div class="form-group">
+            <em class="fa fa-lock"></em> <input type="password" id="signin_password" oninput="clearCustomValidity('signin_form');"
+              autocomplete="current-password" class="form-control" data-i18n="[placeholder]password" required="required">
+          </div>
+          <div class="form-group">
+            <input id="signin_login" type="submit" class="btn btn-primary btn-block btn-lg" data-i18n="[value]login">
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="confirmation_modal" class="modal fullscreen fade" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-confirm-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 class="modal-title" id="confirmation_modal_title" data-i18n="confirmation"></h4>
+        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+      </div>
+      <div class="modal-body" id="confirmation_modal_message">
+        <p>No message set</p>
+      </div>
+      <div class="modal-footer">
+        <input id="btn_cancel_confirmation" type="button" class="btn btn-cancel btn-primary btn-block btn-lg" value="Cancel" data-dismiss="modal">
+        <input id="btn_submit_confirmation" type="submit" class="btn btn-danger btn-ok btn-primary btn-block btn-lg" value="Ok">
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+$("#confirmation_modal").on("show.bs.modal",function(e){
+  var callback = $(e.relatedTarget).data("callback");
+  var cancelCallback=$(e.relatedTarget).data("cancel-callback");
+  if(!callback||0===callback.length){
+    return;
+  }
+  $(e.relatedTarget).data("callback","");
+  var okButton=$(this).find(".btn-ok");
+  var cancelButton=$(this).find(".btn-cancel");
+  var closeButton=$("#confirmation_modal").find(".close");
+  okButton.unbind("click");
+  okButton.click(function(){
+    eval(callback);
+    closeButton.unbind("click");
+    closeButton.click();
+  });
+  cancelButton.click(function(){
+    if(cancelCallback&&0!==cancelCallback.length){
+      eval(cancelCallback);
+    }
+  });
+  closeButton.click(function(){
+    if(cancelCallback&&0!==cancelCallback.length){
+      eval(cancelCallback);
+    }
+  });
+  $("#confirmation_modal_title").html($(e.relatedTarget).data("title"));
+  var words=$(e.relatedTarget).data("message").split(' ');
+  for(i=0;i<words.length;i++){
+    words[i]=$.i18n(words[i]);
+  }
+  $("#confirmation_modal_message").html("<p>"+capitalize(words.join(' '))+"</p>");
+});
+</script>
+<div id="menubar">
+  <div class="menu btn-group">
+    <div class="my-auto" data-i18n="[title]sign_in" style="padding-left: 60px;">
+      <div class="menu-item clickable capitalized" id="mni_login" data-toggle="modal" data-target="#login_modal" data-i18n="sign_in"></div>
+      <div id="div_account" class="dropdown" style="display: none">&nbsp;-&nbsp;
+        <a class="btn btn-secondary dropdown-toggle" href="#" role="button" id="mni_user_account" data-toggle="dropdown" aria-haspopup="true"
+          aria-expanded="false" data-i18n="[title]user_account">
+          <span id="user_display_name"></span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-right" aria-labelledby="dropdownMenuButton">
+          <a class="dropdown-item" id="signout" href="#" onclick="logout()" data-i18n="disconnect"></a>
+        </div>
+      </div>
+    </div>
+    <div class="menu-item clickable capitalized" id="mni_home" onclick="menuController.onClick(this);" data-i18n="[title]view_home">
+      <span class="menu-icon video-icon"></span>
+    </div>
+    <div class="admin-feature menu-item clickable capitalized" id="mni_detection_zone" onclick="menuController.onClick(this);" data-i18n="[title]view_detection_zone">
+      <span class="menu-icon zone-icon"></span>
+    </div>
+    <div class="admin-feature menu-item clickable capitalized" id="mni_detection_periods" onclick="menuController.onClick(this);" data-i18n="[title]view_detection_periods">
+      <span class="menu-icon periods-icon"></span>
+    </div>
+    <div class="admin-feature menu-item clickable capitalized" id="mni_detection_filters" onclick="menuController.onClick(this);" data-i18n="[title]view_detection_filters">
+      <span class="menu-icon devices-icon"></span>
+    </div>
+    <div class="my-auto" style="display:inline-flex;">
+      <div class="d-none d-lg-block d-xl-block my-auto">
+        <div class="menu-item clickable capitalized" id="mni_status" onclick="menuController.onClick(this);" data-i18n="[title]view_status">
+          <span class="menu-icon status-icon"></span>
+        </div>
+        <div class="menu-item clickable capitalized" id="mni_settings" onclick="menuController.onClick(this);" data-i18n="[title]view_settings">
+          <span class="menu-icon settings-icon"></span>
+        </div>
+      </div>
+      <div class="menu-item my-auto" style="display:inline-flex !important;" data-i18n="[title]select_language">
+        <div id="div_language" class="dropdown" style="display: inline-block">
+          <a class="btn btn-secondary dropdown-toggle" href="#" role="button" id="mni_language" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" style="padding-top: 2px !important;" data-i18n="language">
+            <span id="language"></span>
+          </a>
+          <div class="dropdown-menu dropdown-menu-right" aria-labelledby="dropdownMenuButton">
+            <a class="dropdown-item capitalized" href="#" onclick="setLanguage('en');applyTranslations();" data-i18n="english"></a>
+            <a class="dropdown-item capitalized" href="#" onclick="setLanguage('fr');applyTranslations();" data-i18n="french"></a>
+            <a class="dropdown-item capitalized" href="#" onclick="setLanguage('it');applyTranslations();" data-i18n="italian"></a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div style="height:auto;min-height:100% !important;display:flex;top:40px;position:relative;">
+  <div id="alert_messages">
+    <div id="alert_message_template" class="alert alert-dismissible capitalized" style="display: none;">
+      <a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>
+      <div class="row" style="border-width: 0;">
+        <div class="col-sm-2" title="Icon">
+          <span class="icon warning-icon"></span>
+          <span style="font-size: small;"><time class="timeago"></time></span>
+        </div>
+        <div class="col-sm-10 capitalized message" data-i18n="[title]alert_message" style="text-overflow: ellipsis; overflow: hidden;"></div>
+      </div>
+    </div>
+  </div>
+</div>

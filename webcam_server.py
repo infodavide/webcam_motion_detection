@@ -30,29 +30,42 @@ from flask_accept import accept
 
 from drivers.webcam_mock_driver import WebcamMockDriver
 from id_classes_utils import subclasses_of
-from id_network_utils import find_local_mac_address, find_ip_v4, find_wifi_ssid
+from id_network_utils import find_local_mac_address, find_ip_v4, find_netmask, find_gateway, is_dhcp_enabled, find_wifi_ssid
 from id_utils import is_json
 from id_webapp_auth import decode_auth_token, encode_auth_token
 from webcam_driver import WebcamDriver
-from webcam_motion_config import WebcamMotionConfig
+from webcam_motion_config import WebcamMotionConfig, Settings, GRAPHICAL_KEY, TEST_KEY, PASSWORD_KEY, TEMP_DIR_KEY, VIDEO_DEVICE_ADDR_KEY, LOG_LEVEL_KEY
 from webcam_motion_detector import ImageListener, WebcamMotionDetector
 
 
 class ConcreteImageListener(ImageListener):
     def __init__(self):
+        """
+        Initialize the image listener used by the web interface.
+        """
         super().__init__()
         self.__lock = threading.RLock()
         self._image: bytes = b''
 
     def on_image(self, image: bytes) -> None:
+        """
+        Store internally the image read by the video driver.
+        :param image: the image read by the video driver.
+        :return:
+        """
         with self.__lock:
             self._image = image
 
     def get_image(self) -> bytes:
+        """
+        Return the last image read by the video driver.
+        :return:
+        """
         with self.__lock:
             return self._image
 
 
+VERSION: str = '1.0'
 APPLICATION_JSON: str = 'application/json'
 SENDING_MSG: str = 'Sending: '
 NOT_A_JSON_REQUEST: str = 'Request was not JSON'
@@ -74,7 +87,12 @@ no_image_available: bytes = b''
 webapp_stopped = True
 
 
-def create_rotating_log(path: str):
+def create_rotating_log(path: str) -> logging.Logger:
+    """
+    Create the logger with file rotation.
+    :param path: the path of the main log file
+    :return: the logger
+    """
     global config
     result: logging.Logger = logging.getLogger("Webcam HTTP server")
     path_obj: pathlib.Path = pathlib.Path(path)
@@ -101,6 +119,10 @@ def create_rotating_log(path: str):
 
 
 def shutdown():
+    """
+    Clean shutdown of the detector and HTTP server.
+    :return:
+    """
     global logger, config
     if globals().get('motion_detector'):
         logger.info('Stopping motion detector...')
@@ -120,6 +142,10 @@ CONFIG_PATH = str(pathlib.Path(__file__).parent) + os.sep + 'webcam_motion_detec
 
 
 def configure():
+    """
+    Configure the application by creating the logger, the authentication cache, the video driver, the detector, reading the default image, registering the signal hooks.
+    :return:
+    """
     global CONFIG_PATH, authentications_cache, config, image_listener, logger, root_path, motion_detector, no_image_available
     config = WebcamMotionConfig()
     config.read(CONFIG_PATH)
@@ -145,12 +171,15 @@ def configure():
     # noinspection PyTypeChecker
     driver: WebcamDriver = None
     if config.is_test():
+        print('Using test driver: ' + WebcamMockDriver.__name__)
         driver = WebcamMockDriver(logger, config, image_listener, str(pathlib.Path(__file__).parent) + os.sep + 'drivers' + os.sep + 'cattura')
     else:
         for subclass in subclasses_of(WebcamDriver):
+            if 'Mock' in subclass.__name__:
+                continue
+            print('Using driver: ' + subclass.__name__)
             driver = subclass(logger, config)
             break
-    print('Using driver: ' + driver.__class__.__name__)
     try:
         motion_detector = WebcamMotionDetector(logger, config, driver)
     except Exception as ex:
@@ -161,6 +190,10 @@ def configure():
 
 
 def get_video():
+    """
+    Return the video stream (using yield).
+    :return:
+    """
     global logger, image_listener, no_image_available, motion_detector
     while motion_detector.is_running():
         array: bytes = image_listener.get_image()
@@ -171,6 +204,10 @@ def get_video():
 
 
 def get_frame() -> bytes:
+    """
+    Return the last frame read by the video driver, as JPEG.
+    :return: the binary data of the JPEG image
+    """
     global logger, image_listener, no_image_available, motion_detector
     array: bytes = image_listener.get_image()
     i = 0
@@ -185,6 +222,11 @@ def get_frame() -> bytes:
 
 
 def assert_authenticated(request: flask.Request) -> str:
+    """
+    Check authentication.
+    :param request: the request containing the 'Authorization' header
+    :return: the name of the user or None
+    """
     global logger, authentications_cache, SECRET_KEY
     token: str = request.headers.get('Authorization')
     if token is None:
@@ -220,8 +262,13 @@ webapp.config['SECRET_KEY'] = 'th!s_!s_s3cr3t'
 
 @webapp.after_request
 def set_response_headers(response: flask.Response):
+    """
+    Set the cache headers according to the resource.
+    :param response: the response object
+    :return:
+    """
     path: str = flask.request.path
-    if path.endswith('/video') or path.endswith('/frame') or ('/rest/' in path):
+    if path.endswith('/video') or path.endswith('/frame') or ('/rest/' in path) or ('text/html' in response.content_type.lower()):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
@@ -233,6 +280,11 @@ def set_response_headers(response: flask.Response):
 
 @webapp.route('/css/<path:path>', methods=['GET'])
 def http_get_css(path):
+    """
+    Return the CSS resource.
+    :param path: the path of the CSS resource
+    :return:
+    """
     global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug(SENDING_MSG + str(root_path) + os.sep + 'static' + os.sep + 'css' + os.sep + path)
@@ -241,6 +293,11 @@ def http_get_css(path):
 
 @webapp.route('/images/<path:path>', methods=['GET'])
 def http_get_images(path):
+    """
+    Return the image resource.
+    :param path: the path of the image resource
+    :return:
+    """
     global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug(SENDING_MSG + str(root_path) + os.sep + 'static' + os.sep + 'images' + os.sep + path)
@@ -249,14 +306,36 @@ def http_get_images(path):
 
 @webapp.route('/js/<path:path>', methods=['GET'])
 def http_get_js(path):
+    """
+    Return the javascript resource.
+    :param path: the path of the javascript resource
+    :return:
+    """
     global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug(SENDING_MSG + str(root_path) + os.sep + 'static' + os.sep + 'js' + os.sep + path)
     return flask.send_from_directory(str(root_path) + os.sep + 'js', path)
 
 
+@webapp.route('/templates/<path:path>', methods=['GET'])
+def http_get_templates(path):
+    """
+    Return the template resource.
+    :param path: the path of the template resource
+    :return:
+    """
+    global logger, root_path
+    # noinspection PyUnresolvedReferences
+    logger.debug(SENDING_MSG + str(root_path) + os.sep + 'static' + os.sep + 'templates' + os.sep + path)
+    return flask.send_from_directory(str(root_path) + os.sep + 'templates', path)
+
+
 @webapp.route('/', methods=['GET'])
 def http_get_home():
+    """
+    Return the index content as HTML.
+    :return: the response object
+    """
     global logger, root_path
     # noinspection PyUnresolvedReferences
     logger.debug(SENDING_MSG + str(root_path) + os.sep + 'static' + os.sep + 'index.html')
@@ -265,17 +344,12 @@ def http_get_home():
 
 @webapp.route('/rest/app/health', methods=["GET"])
 def http_get_health():
+    """
+    Return the health information as JSON.
+    :return: the response object
+    """
     global logger, motion_detector
-    accept_lang: str = flask.request.headers.get('Accept-Language')
-    if accept_lang is not None:
-        try:
-            accept_lang = accept_lang.split(',')[0].replace('-','_')
-            logger.debug('Using language: ' + accept_lang)
-            humanize.i18n.activate(accept_lang)
-        except Exception as e:
-            logger.debug('No translation for language: ' + accept_lang + ' (' + str(e) + ')')
     result = dict()
-    disks = []
     storage_status = 0
     for partition in psutil.disk_partitions():
         disk_total, disk_used, disk_free = shutil.disk_usage(partition.mountpoint)
@@ -284,40 +358,16 @@ def http_get_health():
         disk_status = round(disk_used * 100 / disk_total, 2)
         if storage_status == 0 or storage_status < disk_status:
             storage_status = disk_status
-        disk_total = humanize.naturalsize(disk_total)
-        disk_used = humanize.naturalsize(disk_used)
-        disk_free = humanize.naturalsize(disk_free)
-        disk = {'name': partition.device + ' (' + partition.mountpoint + ')', 'status': disk_status,
-                'usable': disk_free, 'total': disk_total, 'used': disk_used}
-        disks.append(disk)
-    result['storage'] = {'status': storage_status, 'disks': disks}
     memory = psutil.virtual_memory()
     # noinspection PyUnresolvedReferences
     logger.debug('memory:\n\ttotal: ' + str(memory.total) + ', used: ' + str(memory.used))
     memory_status = round(memory.used * 100 / memory.total, 2)
-    memory_total = humanize.naturalsize(memory.total)
-    memory_free = humanize.naturalsize(memory.available)
-    memory_used = humanize.naturalsize(memory.used)
-    swap_memory = psutil.swap_memory()
-    swap_memory_total = humanize.naturalsize(swap_memory.total)
-    swap_memory_used = humanize.naturalsize(swap_memory.used)
-    result['memory'] = {
-        'sys': {'status': memory_status, 'free': memory_free, 'total': memory_total, 'used': memory_used},
-        'swap': {'total': swap_memory_total, 'used': swap_memory_used}}
     cpu_temperature = 0
     try:
         cpu_temperature = psutil.sensors_temperatures().get('coretemp')[0].current
     except Exception as ex:
         # noinspection PyUnresolvedReferences
         logger.warning('Cannot stop service: %s' % ex, file=sys.stderr)
-    uptime = humanize.naturaldelta(datetime.timedelta(seconds=round(time.time() - psutil.boot_time(), 0)))
-    ipv4 = find_ip_v4()
-    result['sys'] = {'processors': multiprocessing.cpu_count(), 'cpuLoad': statistics.median(os.getloadavg()),
-                     'uptime': uptime,
-                     'cpuTemperature': cpu_temperature,
-                     'macAddress': find_local_mac_address(ipv4),
-                     'ipv4Address': ipv4,
-                     'ssid': find_wifi_ssid()}
     if storage_status > 90 or cpu_temperature > 90 or memory_status > 90:
         result['health'] = -2
     elif not motion_detector.is_running():
@@ -331,8 +381,69 @@ def http_get_health():
     return flask.jsonify(result)
 
 
+@webapp.route('/rest/app/status', methods=["GET"])
+def http_get_status():
+    """
+    Return the health information as JSON.
+    :return: the response object
+    """
+    global logger, motion_detector
+    accept_lang: str = flask.request.headers.get('Accept-Language')
+    if accept_lang is not None:
+        try:
+            accept_lang = accept_lang.split(',')[0].replace('-','_')
+            logger.debug('Using language: ' + accept_lang)
+            humanize.i18n.activate(accept_lang)
+        except Exception as e:
+            logger.debug('No translation for language: ' + accept_lang + ' (' + str(e) + ')')
+    result = dict()
+    result['version'] = VERSION
+    if not motion_detector.is_running():
+        result['status'] = 'running'
+    if not motion_detector.is_activated():
+        result['status'] = 'activated'
+    if motion_detector.is_suspended():
+        result['status'] = 'suspended'
+    result['storage'] = []
+    for partition in psutil.disk_partitions():
+        disk_total, disk_used, disk_free = shutil.disk_usage(partition.mountpoint)
+        # noinspection PyUnresolvedReferences
+        logger.debug(partition.mountpoint + ':\n\ttotal: ' + str(disk_total) + ', used: ' + str(disk_used))
+        disk = {'name': partition.device + ' (' + partition.mountpoint + ')', 'total': disk_total, 'used': disk_used}
+        result['storage'].append(disk)
+    memory = psutil.virtual_memory()
+    # noinspection PyUnresolvedReferences
+    logger.debug('memory:\n\ttotal: ' + str(memory.total) + ', used: ' + str(memory.used))
+    swap_memory = psutil.swap_memory()
+    result['memory'] = {
+        'sys': {'total': memory.total, 'used': memory.used},
+        'swap': {'total': swap_memory.total, 'used': swap_memory.used}}
+    cpu_temperature = 0
+    try:
+        cpu_temperature = psutil.sensors_temperatures().get('coretemp')[0].current
+    except Exception as ex:
+        # noinspection PyUnresolvedReferences
+        logger.warning('Cannot stop service: %s' % ex, file=sys.stderr)
+    uptime = humanize.naturaldelta(datetime.timedelta(seconds=round(time.time() - psutil.boot_time(), 0)))
+    ipv4 = find_ip_v4()
+    result['sys'] = {'processors': multiprocessing.cpu_count(), 'cpuLoad': statistics.median(os.getloadavg()),
+                     'uptime': uptime,
+                     'cpuTemperature': cpu_temperature,
+                     'macAddress': find_local_mac_address(ipv4),
+                     'ipv4Address': ipv4,
+                     'netmask' : find_netmask(ipv4),
+                     'gateway' : find_gateway(),
+                     'dhcp': is_dhcp_enabled(ipv4),
+                     'ssid': find_wifi_ssid()}
+    return flask.jsonify(result)
+
+
 @webapp.route("/frame", methods=['GET'])
 def http_get_frame():
+    """
+    Return the last frame read by the video driver as JPEG image.
+    :return: the response object
+    """
     global logger, motion_detector, no_image_available
     username: str = assert_authenticated(flask.request)
     # noinspection PyUnresolvedReferences
@@ -347,6 +458,10 @@ def http_get_frame():
 
 @webapp.route("/video", methods=['GET'])
 def http_get_video():
+    """
+    Return the video stream read by the video driver.
+    :return: the response object
+    """
     global logger, motion_detector
     username: str = assert_authenticated(flask.request)
     if username is None:
@@ -360,6 +475,10 @@ def http_get_video():
 
 @webapp.route("/rest/login", methods=['POST'])
 def http_post_login():
+    """
+    Process the authentication request describing the user name and its password (as MD5).
+    :return: the response object with the authentication token in the 'X-Authorization' header or a 40X error code
+    """
     global logger, authentications_cache, config, SECRET_KEY
     if not flask.request.is_json:
         return flask.make_response(NOT_A_JSON_REQUEST, 406)
@@ -397,29 +516,49 @@ def http_post_login():
 
 @webapp.route("/rest/logout", methods=['POST'])
 def http_post_logout():
+    """
+    Process the logout request.
+    :return: the response object
+    """
     global logger, authentications_cache, config, SECRET_KEY
     username: str = assert_authenticated(flask.request)
-    if username is None:
-        return flask.make_response('', 403)
-    logger.debug('Logout: ' + username)
-    authentications_cache[username] = None
+    if username is not None:
+        logger.debug('Logout: ' + username)
+        authentications_cache[username] = None
     return flask.make_response('', 200)
 
 
 @webapp.route("/rest/settings", methods=['GET'])
 def http_get_settings():
+    """
+    Return the configuration as settings in JSON format.
+    :return: the response object
+    """
     global logger, config
-    username: str = assert_authenticated(flask.request)
-    if username is None:
-        return flask.make_response('', 403)
     # noinspection PyUnresolvedReferences
     logger.debug('Getting settings...')
-    return flask.Response(config.get_settings().to_json(), mimetype=APPLICATION_JSON)
+    copy: Settings = config.get_settings().clone()
+    del copy[GRAPHICAL_KEY]
+    del copy[TEST_KEY]
+    del copy[TEMP_DIR_KEY]
+    del copy[VIDEO_DEVICE_ADDR_KEY]
+    del copy[LOG_LEVEL_KEY]
+    copy[PASSWORD_KEY].set_value(len(copy[PASSWORD_KEY].get_value())*'*')
+    for extension_config in config.get_extension_configs():
+        extension_name: str = extension_config.get_extension_class_name()
+        copy[extension_name+'.enabled'] = extension_config.is_enabled()
+        for k in sorted(extension_config.get_settings().keys()):
+            copy[extension_name+'.'+k] = extension_config.get_settings()[k].clone()
+    return flask.Response(copy.to_full_json(), mimetype=APPLICATION_JSON)
 
 
 @webapp.route("/rest/settings", methods=['POST'])
 @accept(APPLICATION_JSON)
 def http_post_settings():
+    """
+    Saves the settings into the configuration object and file if authentication is valid.
+    :return: the response object (40X or 200)
+    """
     global logger, config, CHARSET, motion_detector
     if not flask.request.is_json:
         return flask.make_response(NOT_A_JSON_REQUEST, 406)
@@ -429,14 +568,18 @@ def http_post_settings():
     # noinspection PyUnresolvedReferences
     json_content = flask.request.data.decode(CHARSET)
     logger.debug('Setting settings: ' + json_content)
-    config.get_settings().parse(json_content)
-    config.write()
-    motion_detector.restart()
+    # config.get_settings().parse(json_content)
+    # config.write()
+    # motion_detector.restart()
     return flask.make_response('', 200)
 
 
 @webapp.route("/rest/periods", methods=['GET'])
 def http_get_periods():
+    """
+    Return the time intervals used to activate detection in JSON format.
+    :return: the response object
+    """
     global logger, config
     # noinspection PyUnresolvedReferences
     logger.debug('Getting periods...')
@@ -446,6 +589,10 @@ def http_get_periods():
 @webapp.route("/rest/periods", methods=['POST'])
 @accept(APPLICATION_JSON)
 def http_post_periods():
+    """
+    Saves the time intervals used to activate detection into the configuration object and file if authentication is valid.
+    :return: the response object (40X or 200)
+    """
     global logger, config, CHARSET, motion_detector
     if not flask.request.is_json:
         return flask.make_response(NOT_A_JSON_REQUEST, 406)
@@ -463,6 +610,10 @@ def http_post_periods():
 
 @webapp.route("/rest/coordinates", methods=['GET'])
 def http_get_coordinates():
+    """
+    Return the coordinates of the detection zone in JSON format.
+    :return: the response object
+    """
     global logger, config
     # noinspection PyUnresolvedReferences
     logger.debug('Getting coordinates...')
@@ -476,6 +627,10 @@ def http_get_coordinates():
 @webapp.route("/rest/coordinates", methods=['POST'])
 @accept(APPLICATION_JSON)
 def http_post_coordinates():
+    """
+    Saves the coordinates of the detection zone into the configuration object and file if authentication is valid.
+    :return: the response object (40X or 200)
+    """
     global logger, config, CHARSET, motion_detector
     if not flask.request.is_json:
         return flask.make_response(NOT_A_JSON_REQUEST, 406)
@@ -493,6 +648,10 @@ def http_post_coordinates():
 
 @webapp.route("/rest/filters", methods=['GET'])
 def http_get_filters():
+    """
+    Return the MAC addresses in JSON format.
+    :return: the response object
+    """
     global logger, config, motion_detector
     # noinspection PyUnresolvedReferences
     available = flask.request.args.get('available')
@@ -509,6 +668,10 @@ def http_get_filters():
 @webapp.route("/rest/filters", methods=['POST'])
 @accept(APPLICATION_JSON)
 def http_post_filters():
+    """
+    Saves the MAC addresses used to suspend detection into the configuration object and file if authentication is valid.
+    :return: the response object (40X or 200)
+    """
     global logger, config, CHARSET, motion_detector
     if not flask.request.is_json:
         return flask.make_response(NOT_A_JSON_REQUEST, 406)
@@ -526,6 +689,10 @@ def http_post_filters():
 
 @webapp.route('/rest/app/shutdown', methods=['POST'])
 def http_post_shutdown():
+    """
+    Call the clean shutdown function (only allowed by local HTTP request)
+    :return: the response (200 or 500 if not running or 405 if not posted from localhost)
+    """
     if not (flask.request.remote_addr == 'localhost' or flask.request.remote_addr == '127.0.0.1'):
         return flask.make_response('', 405)
     logger.info('Requesting shutdown...')
@@ -537,6 +704,7 @@ def http_post_shutdown():
 
 
 if __name__ == '__main__':
+    # Start of the web interface (with clean shutdown on error)
     # noinspection PyUnresolvedReferences
     logger.info('Starting on port: ' + str(config.get_http_port()))
     # Cross Origin Resource Sharing

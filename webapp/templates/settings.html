@@ -1,0 +1,61 @@
+{{#registerPartial "settings_values-partial"}}
+{{#with controller}}
+{{#each _values}}
+<div class="row" style="min-height: 38px;">
+    <div class="column col-lg-5 setting-key">{{@key}}</div>
+    {{#if (isAdmin)}}
+    <div class="column col-lg-5 setting-value" data-key="{{@key}}"></div>
+    {{else}}
+    <div class="column col-lg-5">{{this}}</div>
+    {{/if}}
+</div>
+{{else}}
+<div class="row"><div class="column col-lg-12" data-i18n="no_setting"></div></div>
+{{/each}}
+<script>
+    $('.setting-value').each(function() {
+        var key=$(this).attr('data-key');
+        var value=controller._values[key];
+        var type=value['data_type'];
+        if(type=='bool'){
+          type='boolean';
+          $(this).css('align-content','baseline');
+        }else if(type=='int'){
+          type='number';
+        }else if(key.toLowerCase().indexOf('password')>=0){
+          type='password';
+        }else if(type=='str'){
+          type='string';
+        }else{
+          type='';
+        }
+        var min=value['min'];
+        var max=value['max'];
+        var options=buildInputOptions(value['id'],type,true,!isAdmin,min,max);
+        $(this).html(buildInput($.i18n('value'),value['value'],options));
+    });
+</script>
+{{/with}}
+{{/registerPartial}}
+<div style="margin-top:16px;">
+    <h1 data-i18n="settings"></h1>
+    <p data-i18n="settings_description"></p>
+    {{#if (isAdmin)}}
+      <form id="settings_form" onsubmit="controller._save();return false;">
+    {{/if}}
+    <div class="row row-header">
+        <div class="column col-lg-5 col-header" data-i18n="name"></div>
+        <div class="column col-lg-5 col-header" data-i18n="value"></div>
+    </div>
+    <div id="settings_values">
+         {{> settings_values-partial}}
+    </div>
+    {{#if (isAdmin)}}
+        <div style="margin-top:16px;">
+            <button type="submit" id="btn_submit_settings" class="btn btn-primary mb-2" data-i18n="save"></button>
+            <button id="btn_cancel_settings" class="btn btn-primary mb-2" onclick="controller._cancel();" data-i18n="cancel"></button>
+        </div>
+      </form>
+    {{/if}}
+    </div>
+</div>

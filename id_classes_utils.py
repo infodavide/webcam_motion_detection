@@ -11,10 +11,20 @@ SetOfTypes = Set[type]
 
 
 def subclasses_of(cls) -> SetOfTypes:
+    """
+    Return the subclasses of the given class.
+    :param cls: the base class
+    :return: the subclasses
+    """
     return set(cls.__subclasses__()).union([s for c in cls.__subclasses__() for s in subclasses_of(c)])
 
 
-def import_files_of_dir(path: str):
+def import_files_of_dir(path: str) -> None:
+    """
+    Import .py files of the given directory.
+    :param path: the directory
+    :return:
+    """
     __globals = globals()
     sys.path.append(path)
     for file in os.listdir(path):

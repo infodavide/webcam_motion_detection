@@ -8,7 +8,16 @@ import time
 from logging.handlers import RotatingFileHandler
 
 
-def create_rotating_log(name: str, path: str, log_level: str, max_mbytes: int = 5, backup_count: int = 5):
+def create_rotating_log(name: str, path: str, log_level: str, max_mbytes: int = 5, backup_count: int = 5) -> logging.logger:
+    """
+    Instantiate a logger with files rotation.
+    :param name: the name
+    :param path: the path of the file
+    :param log_level: the root level
+    :param max_mbytes: the max amount of bytes used to trigger rotation of file
+    :param backup_count: the max number of archived files to keep
+    :return: the logger
+    """
     result: logging.Logger = logging.getLogger(name)
     path_obj: pathlib.Path = pathlib.Path(path)
     if not os.path.exists(path_obj.parent.absolute()):
@@ -29,7 +38,14 @@ def create_rotating_log(name: str, path: str, log_level: str, max_mbytes: int = 
     return result
 
 
-def create_console_log(name: str, log_level: str, logger: logging.Logger = None):
+def create_console_log(name: str, log_level: str, logger: logging.Logger = None) -> logging.logger:
+    """
+    Instantiate a logger with console output only.
+    :param name: the name
+    :param log_level: the root level
+    :param logger: the optional existing logger used to attach console handler to
+    :return: the logger
+    """
     result: logging.Logger = logger
     if result is None:
         result = logging.getLogger(name)
@@ -44,5 +60,10 @@ def create_console_log(name: str, log_level: str, logger: logging.Logger = None)
     return result
 
 
-def log(message):
+def log(message) -> None:
+    """
+    Print the given message with formatted time prefix like 20210106_111701: Message.
+    :param message: the message
+    :return:
+    """
     print(time.strftime('%Y%m%d_%H%M%S', time.gmtime(time.time())) + ': ' + message)

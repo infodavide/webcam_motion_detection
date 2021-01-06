@@ -6,30 +6,31 @@ class DetectionZoneController{
     this._zone=undefined;
     this._jcrop_api=undefined
     const obj=this;
-    var content='<div id="video_frame_div" class="center"><h1 data-i18n="zone"></h1><p data-i18n="zone_description"></p><img id="video_frame" class="video" style="-webkit-user-select: none;" src="'+BASE_URL+'/frame"/>';
-    if(isAdmin){
-      content+='<form id="coordinates_form" onsubmit="controller._save();return false;">';
-      content+='<div style="margin-top:16px;">';
-      content+='<button type="submit" id="btn_submit_coordinates" class="btn btn-primary mb-2" data-i18n="save"></button>';
-      content+='<button id="btn_cancel_coordinates" class="btn btn-primary mb-2" onclick="controller._cancel();" data-i18n="cancel"></button>';
-      content+='</div>';
-      content+='</form>';
-    }
-    content+='</div>';
-    $('#content').html(content);
-    $('#video_frame').Jcrop({
-      bgColor: '#ffffff',
-      bgOpacity: 0.4,
-      onChange: obj._setCoordinates
-    },function(){
-      obj._jcrop_api=this;
-      obj._get();
-      if(isAdmin){
-        obj._jcrop_api.enable();
-      }else{
-        obj._jcrop_api.disable();
-      }
+    var path=BASE_URL+'/templates/detection_zone.html';
+    $.ajax({
+        url:path,
+        cache:HANDLEBARS_CACHE,
+        success:function(data){
+            var templateInput={ controller : obj };
+            var template=Handlebars.compile(data,{ strict: true });
+            $('#content').html(template(templateInput));
+            $('#video_frame').Jcrop({
+                    bgColor: '#ffffff',
+                    bgOpacity: 0.4,
+                    onChange: obj._setCoordinates
+                },function(){
+                obj._jcrop_api=this;
+                if(isAdmin){
+                    obj._jcrop_api.enable();
+                }else{
+                    obj._jcrop_api.disable();
+                }
+                obj._get();
+                $('#video_frame').attr('src',BASE_URL+'/frame?='+new Date().getTime());
+            });
+        }
     });
+    console.log('DetectionZoneController initialized');
   }
   getResourceKey(){
     return 'coordinates';

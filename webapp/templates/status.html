@@ -1,0 +1,121 @@
+{{#registerPartial "status_values-partial"}}
+{{#ifNotEmpty values}}
+<div class="row row-header">
+    <div class="column col-lg-12 col-header" data-i18n="application"></div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="status"></div>
+    <div class="column col-lg-6 capitalized" data-i18n="{{values.status}}"></div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="version"></div>
+    <div class="column col-lg-6 capitalized" data-i18n="{{values.version}}"></div>
+</div>
+<div class="row row-header">
+    <div class="column col-lg-12 col-header" data-i18n="memory"></div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="swap"></div>
+    <div class="column col-lg-6">
+        <div class="progress">
+            <div class="progress-bar" id="swap_memory_progressbar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+    </div>
+</div>
+{{#ifIsNotZero values.memory.swap.total}}
+<script>
+  var v=100*{{values.memory.swap.used}}/{{values.memory.swap.total}};
+  v=Math.round((v+Number.EPSILON)*100)/100;
+  $('#swap_memory_progressbar').css('width',v+'%').attr('title',v+'%').attr('aria-valuenow',v);
+</script>
+{{/ifIsNotZero}}
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="ram"></div>
+    <div class="column col-lg-6">
+        <div class="progress">
+            <div class="progress-bar" id="sys_memory_progressbar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+    </div>
+</div>
+{{#ifIsNotZero values.memory.sys.total}}
+<script>
+  var v=100*{{values.memory.sys.used}}/{{values.memory.sys.total}};
+  v=Math.round((v+Number.EPSILON)*100)/100;
+  $('#sys_memory_progressbar').css('width',v+'%').attr('title',v+'%').attr('aria-valuenow',v);
+</script>
+{{/ifIsNotZero}}
+<div class="row row-header">
+    <div class="column col-lg-12 col-header" data-i18n="storage"></div>
+</div>
+{{#each values.storage}}
+<div class="row">
+    <div class="column col-lg-6" >{{this.name}}</div>
+    <div class="column col-lg-6">
+        <div class="progress">
+            <div class="progress-bar" id="storage_{{@key}}_progressbar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+    </div>
+</div>
+{{#ifIsNotZero this.total}}
+<script>
+  var v=100*{{this.used}}/{{this.total}};
+  v=Math.round((v+Number.EPSILON)*100)/100;
+  $('#storage_{{@key}}_progressbar').css('width',v+'%').attr('title',v+'%').attr('aria-valuenow',v);
+</script>
+{{/ifIsNotZero}}
+{{/each}}
+<div class="row row-header">
+    <div class="column col-lg-12 col-header" data-i18n="system"></div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="load"></div>
+    <div class="column col-lg-6">{{values.sys.cpuLoad}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="processors"></div>
+    <div class="column col-lg-6">{{values.sys.processors}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="uptime"></div>
+    <div class="column col-lg-6">{{values.sys.uptime}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="temperature"></div>
+    <div class="column col-lg-6">{{values.sys.cpuTemperature}}°</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="mac_address"></div>
+    <div class="column col-lg-6">{{values.sys.macAddress}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="ip_address"></div>
+    <div class="column col-lg-6">{{values.sys.ipv4Address}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="netmask"></div>
+    <div class="column col-lg-6">{{values.sys.netmask}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="gateway"></div>
+    <div class="column col-lg-6">{{values.sys.gateway}}</div>
+</div>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="DHCP"></div>
+    <div id="is_dhcp" class="column col-lg-6"></div>
+</div>
+<script>
+  $('#is_dhcp').html($.i18n('{{values.sys.dhcp}}'));
+</script>
+<div class="row">
+    <div class="column col-lg-6 capitalized" data-i18n="SSID"></div>
+    <div class="column col-lg-6">{{values.sys.ssid}}</div>
+</div>
+{{/ifNotEmpty}}
+{{/registerPartial}}
+<div style="margin-top:16px;">
+    <h1 data-i18n="status"></h1>
+    <p data-i18n="status_description"></p>
+    <div id="status_values">
+         {{> status_values-partial}}
+    </div>
+</div>

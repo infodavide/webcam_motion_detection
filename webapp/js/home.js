@@ -3,7 +3,18 @@ class HomeController{
   /* constructor */
   constructor(){
     console.log('Initialization of HomeController...');
-    var content='<div id="video_div"><p data-i18n="home_description"></p><img id="video_frame" class="video" style="-webkit-user-select: none;" src="'+BASE_URL+'/video"/></div>'
-    $('#content').html(content);
+    const obj=this;
+    var path=BASE_URL+'/templates/home.html';
+    $.ajax({
+        url:path,
+        cache:HANDLEBARS_CACHE,
+        success:function(data){
+            var templateInput={ controller : obj };
+            var template=Handlebars.compile(data,{ strict: true });
+            $('#content').html(template(templateInput));
+            $('#video').attr('src',BASE_URL+'/video?='+new Date().getTime());
+        }
+    });
+    console.log('HomeController initialized');
   }
 }

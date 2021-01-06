@@ -4,6 +4,7 @@ import atexit
 import cv2
 import datetime
 import logging
+import numpy as np
 import os
 import signal
 import sys
@@ -16,7 +17,7 @@ from builtins import int
 from datetime import datetime
 from typing import List
 from webcam_driver import WebcamDriver
-from webcam_motion_config import Times, WebcamMotionConfig
+from webcam_motion_config import Periods, WebcamMotionConfig
 from extension import Extension
 from id_network_utils import find_ip_v4, is_reachable, scan_network
 
@@ -28,13 +29,22 @@ SUSPENDED_SPACE: str = 'suspended: '
 
 
 class ImageItem(object):
-    def __init__(self, basename, data):
+    def __init__(self, basename: str, data: bytes):
+        """
+        Initialize the image object passed to the extensions.
+        :param basename: the image name with time of capture
+        :param data: the binary data
+        """
         self.basename = basename
         self.data = data
 
     """ Returns the string representation of the view """
 
     def __str__(self) -> str:
+        """
+        Return the textual view, the image name with time of capture.
+        :return: the text
+        """
         return str(self.basename)
 
 
@@ -42,7 +52,7 @@ class ImageListener(ABC):
     @abstractmethod
     def on_image(self, image: bytes) -> None:
         """
-        Receive image from WebcamMotionDetector.
+        Listener interface used to receive image from detector mechanism.
         """
         pass
 
@@ -55,6 +65,12 @@ class WebcamMotionDetector(object):
     logger: logging.Logger = None
 
     def __init__(self, parent_logger: logging.Logger, config: WebcamMotionConfig, driver: WebcamDriver):
+        """
+        Initialize the detection mechanism.
+        :param parent_logger: the main logger
+        :param config: the configuration object
+        :param driver: the video driver object
+        """
         self.__active = False
         if not WebcamMotionDetector.logger:
             WebcamMotionDetector.logger = logging.getLogger(self.__class__.__name__)
@@ -70,7 +86,6 @@ class WebcamMotionDetector(object):
         # noinspection PyTypeChecker
         self.__last_detection_time: datetime = None
         # Video capture and JPEG image
-        self.__image_bytes: bytes = b''
         self.__image_event: threading.Event = threading.Event()
         self.__images: list = list()
         # Status flags
@@ -102,11 +117,20 @@ class WebcamMotionDetector(object):
         WebcamMotionDetector.logger.info('Motion detector configured')
 
     def __del__(self) -> None:
-        self.stop()
+        """
+        Stop the task on destruction.
+        :return:
+        """
+        self.stop(True)
 
     def __process(self, images, message=None) -> None:
+        """
+        Forward the images and messages to the extensions on detection.
+        :param images: the list of images
+        :param message: the message
+        :return:
+        """
         if not self.__extensions or len(self.__extensions) == 0:
-            WebcamMotionDetector.logger.debug('No extension set')
             return
         WebcamMotionDetector.logger.info('Dispatching to notifier')
         for extension in self.__extensions:
@@ -114,14 +138,13 @@ class WebcamMotionDetector(object):
                 extension.process(images, message)
 
     def __check_activated(self) -> None:
+        """
+        Check activation according to interval of times and current time and then start or stop the capture according to the result.
+        :return:
+        """
         WebcamMotionDetector.logger.debug('Checking if activated according to time settings...')
-        r: bool = False
         d = datetime.now()
-        ranges: Times = self.__config.get_activation_periods().get(d.weekday())
-        if len(ranges) > 0:
-            t = d.time()
-            if ranges[0] == ranges[1] or ranges[0] <= t <= ranges[1]:
-                r = True
+        r: bool = self.__config.get_activation_periods().is_in(d)
         if self.__activated != r:
             WebcamMotionDetector.logger.info(ACTIVATED_SPACE + str(r) + ', ' + SUSPENDED_SPACE + str(self.__suspended))
             self.__activated = r
@@ -133,6 +156,10 @@ class WebcamMotionDetector(object):
         WebcamMotionDetector.logger.debug('Check activated scheduled...' + repr(self.__check_activated_task))
 
     def __check_suspended(self) -> None:
+        """
+        Check suspension according to presence of devices on the network and then start or stop the capture according to the result.
+        :return:
+        """
         WebcamMotionDetector.logger.debug('Checking if suspended by detection of a secure device on the network...')
         ip_v4: str = find_ip_v4()
         r: bool = False
@@ -153,14 +180,28 @@ class WebcamMotionDetector(object):
         WebcamMotionDetector.logger.debug('Check suspended scheduled...' + repr(self.__check_suspended_task))
 
     def add_listener(self, listener: ImageListener) -> None:
+        """
+        Add an image listener to get all the frames read by the video driver.
+        :param listener:  the listener
+        :return:
+        """
         if listener not in self.__listeners:
             self.__listeners.append(listener)
 
     def remove_listener(self, listener: ImageListener) -> None:
+        """
+        Remove the image listener to get all the frames read by the video driver.
+        :param listener:  the listener
+        :return:
+        """
         if listener in self.__listeners:
             self.__listeners.remove(listener)
 
     def __capture(self) -> None:
+        """
+        Main capture and detection mechanism.
+        :return:
+        """
         WebcamMotionDetector.logger.info('Capturing...')
         # Assigning our static_back to None
         static_back = None
@@ -169,16 +210,17 @@ class WebcamMotionDetector(object):
             while self.__active and self.__activated and not self.__suspended:
                 now: datetime.datetime = datetime.now()
                 # Reading frame(image) from video
-                check, frame = self.__driver.read()
-                if not check:
+                ready, frame = self.__driver.read()
+                if not ready:
                     continue
-                # Reset the JPEG image associated to the previous frame
-                resized_frame_bytes: bytes = bytes()
-                is_success, resized_frame_bytes = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                # Extract the JPEG image associated to the frame
+                is_success, resized_frame = cv2.imencode('.jpg', frame, params=[int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                resized_frame_bytes: bytes = resized_frame.tobytes()
+                # Notify
                 for listener in self.__listeners:
                     listener.on_image(resized_frame_bytes)
                 self.__image_event.set()
-                # Initializing motion = 0(no motion)
+                # Initializing motion = False (no motion)
                 motion: bool = False
                 # Converting color image to gray_scale image
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -200,11 +242,11 @@ class WebcamMotionDetector(object):
                     if cv2.contourArea(contour) > CAPTURE_CONTOUR:
                         motion = True
                         (x, y, w, h) = cv2.boundingRect(contour)
-                        # making green rectangle around the moving object
+                        # Making green rectangle around the moving object
                         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 3)
                         break
                 if not self.moving and motion and (self.__last_detection_time is None or (now - self.__last_detection_time).total_seconds() > 1):
-                    image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', self.__image_bytes)
+                    image = ImageItem('webcam_motion_detection-' + str(now) + '.jpg', resized_frame_bytes)
                     while len(self.__images) > MAX_IMAGES:
                         self.__images.pop(0)
                     self.__images.append(image)
@@ -213,15 +255,16 @@ class WebcamMotionDetector(object):
                     static_back = gray
                 # noinspection PyUnresolvedReferences
                 if self.__last_detection_time and (now - self.__last_detection_time).total_seconds() > int(self.__config.get_notification_delay()):
+                    # Call extensions on detection
                     # noinspection PyUnresolvedReferences
                     task = threading.Timer(0, self.__process, args=[self.__images.copy(), 'Motion detected using ' + self.__config.get_video_device_name()])
                     task.start()
                     self.__images.clear()
                 # noinspection PyUnresolvedReferences
-                if self.__config.get_graphical():
+                if self.__config.is_graphical():
                     cv2.imshow("Color Frame", frame)
                 key = cv2.waitKey(1)
-                # if q entered process will stop
+                # If q entered process will stop
                 if key == ord('q'):
                     WebcamMotionDetector.logger.info('Stopping...')
                     if self.__check_activated_task:
@@ -242,6 +285,10 @@ class WebcamMotionDetector(object):
         self.__capture_task = None
 
     def __start_capture_task(self) -> None:
+        """
+        Start the capture thread.
+        :return:
+        """
         with self.__stop_lock:
             if not self.__active:
                 WebcamMotionDetector.logger.info('Detector is not active, capture not started...')
@@ -257,26 +304,49 @@ class WebcamMotionDetector(object):
                 WebcamMotionDetector.logger.info('Capture already running')
 
     def is_running(self) -> bool:
+        """
+        Check if capture is running.
+        :return: True if running
+        """
         return self.__active
 
     def is_activated(self) -> bool:
+        """
+        Check if capture is activated.
+        :return: True if activated
+        """
         return self.__activated
 
     def is_suspended(self) -> bool:
+        """
+        Check if capture is suspended.
+        :return: True if suspended
+        """
         return self.__suspended
 
     def start(self) -> None:
+        """
+        Start the threads (activation, suspension) used to start or stop the capture.
+        :return:
+        """
         WebcamMotionDetector.logger.debug('Starting...')
         with self.__start_lock:
             self.__active = True
-            self.__check_activated()
-            self.__check_suspended()
+            self.__check_activated_task = threading.Timer(1, self.__check_activated)
+            self.__check_activated_task.start()
+            self.__check_suspended_task = threading.Timer(1, self.__check_suspended)
+            self.__check_suspended_task.start()
 
-    def stop(self) -> None:
+    def stop(self, destructor: bool = False) -> None:
+        """
+        Stop the threads (activation, suspension and capture).
+        :return:
+        """
         with self.__start_lock:
             with self.__stop_lock:
                 try:
-                    WebcamMotionDetector.logger.debug('Stopping...')
+                    if not destructor:
+                        WebcamMotionDetector.logger.debug('Stopping...')
                 except NameError:
                     pass
                 self.__active = False
@@ -300,12 +370,24 @@ class WebcamMotionDetector(object):
                     print('Cannot stop __capture_task: %s' % e, file=sys.stderr)
 
     def restart(self):
+        """
+        Stop and start the threads.
+        :return:
+        """
         self.stop()
         time.sleep(1)
         self.start()
 
     def get_image_event(self) -> threading.Event:
+        """
+        Return the lock on image.
+        :return:
+        """
         return self.__image_event
 
     def get_scan_results(self):
+        """
+        Return and share the results of the network scan used by the suspension thread.
+        :return:
+        """
         return self.__scan_results

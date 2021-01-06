@@ -14,16 +14,34 @@ DEFAULT_SMTP_PORT: int = 25
 class SmtpNotifier(Extension):
     @classmethod
     def new_config_instance(cls) -> NetExtensionConfig:
+        """
+        Instantiate a new configuration object for this type of extension.
+        :return: a new configuration object
+        """
         return NetExtensionConfig(cls.__name__)
 
     def __init__(self, config: NetExtensionConfig):
+        """
+        Set the configuration for the extension and initialize the list of pending images.
+        :param config: the configuration
+        """
         super().__init__(config)
         self._pending_images = list()
 
     def _add_pending(self, images: list, message=None) -> None:
+        """
+        Add images and optional message to pending elements to process
+        :param images: the images to add for a later processing
+        :param message: the message to add for a later processing
+        """
         self._pending_images.append(images)
 
     def _process(self, images: list, message=None) -> bool:
+        """
+        Send the images by email using an SMTP server.
+        :param images: the images to send
+        :param message: the message used as subject of the email
+        """
         # noinspection PyUnresolvedReferences
         if not self._config.get_server() or not self._config.get_port():
             self._get_logger().warning(

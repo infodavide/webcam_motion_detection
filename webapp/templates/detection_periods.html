@@ -1,0 +1,76 @@
+{{#registerPartial "detection_periods_values-partial"}}
+{{#each values}}
+<div class="row" style="height: 42px;">
+    <div class="column col-lg-2" style="display: inline-flex;align-items: center;">
+{{#if (isAdmin)}}
+    <a id="btn_period_{{@key}}" class="delete-icon clickable" data-i18n="[title]delete" data-toggle="modal" data-callback="controller._remove({{@key}})" data-i18n="[data-title]confirm_deletion" data-message="delete?" data-target="#confirmation_modal"></a>
+{{/if}}
+    </div>
+    <div class="column col-lg-2" data-i18n="[title]day" style="display: inline-flex;align-items: center;">{{#intToWeekday}}{{this.day}}{{/intToWeekday}}</div>
+    <div class="column col-lg-4" data-i18n="[title]start_time" style="display: inline-flex;align-items: center;">{{this.start}}</div>
+    <div class="column col-lg-4" data-i18n="[title]stop_time" style="display: inline-flex;align-items: center;">{{this.stop}}</div>
+</div>
+{{else}}
+<div class="row"><div class="column col-lg-12" data-i18n="no_period" style="text-transform: capitalize;"></div></div>
+{{/each}}
+{{/registerPartial}}
+<div style="margin-top:16px;">
+    <h1 data-i18n="periods"></h1>
+    <p data-i18n="periods_description"></p>
+    {{#if (isAdmin)}}
+      <form id="periods_form" onsubmit="controller._save();return false;">
+    {{/if}}
+    <div class="row row-header">
+        <div class="column col-lg-2 col-header"></div>
+        <div class="column col-lg-2 col-header" data-i18n="day"></div>
+        <div class="column col-lg-4 col-header" data-i18n="select_start_time"></div>
+        <div class="column col-lg-4 col-header" data-i18n="select_stop_time"></div>
+    </div>
+    {{#if (isAdmin)}}
+      <div class="row">
+        <div class="column col-lg-2" data-i18n="[title]save" style="display: inline-flex;align-items: center;">
+            <a id="btn_save_period" class="save-icon clickable d-none d-lg-block d-xl-block" data-i18n="[title]save" onclick="controller._add();"></a>
+        </div>
+        <input type="hidden" id="period_id">
+        <div class="column col-lg-2" data-i18n="[title]weekday" id="period_day_div" style="display: inline-flex;align-items: center;">
+        </div>
+<script>
+    var options=DetectionPeriodsController.buildWeekdayInputOptions('period_day',true,!isAdmin);
+    $('#period_day_div').html(buildInput($.i18n('day'),'',options));
+</script>
+        <div class="column col-lg-4" data-i18n="[title]select_start_time" id="period_start_div" style="display: inline-flex;align-items: center;">
+        </div>
+<script>
+    var hoursOptions=DetectionPeriodsController.buildHoursInputOptions('period_start_h',true,!isAdmin);
+    var minutesOptions=DetectionPeriodsController.buildMinutesInputOptions('period_start_m',true,!isAdmin);
+    var content=buildInput($.i18n('hours'),0,hoursOptions);
+    content+='&nbsp;'+$.i18n('hours')+'&nbsp;';
+    content+=buildInput($.i18n('minutes'),0,minutesOptions);
+    content+='&nbsp;'+$.i18n('minutes');
+    $('#period_start_div').html(content);
+</script>
+        <div class="column col-lg-4" data-i18n="[title]select_stop_time" id="period_stop_div" style="display: inline-flex;align-items: center;">
+        </div>
+<script>
+    var hoursOptions=DetectionPeriodsController.buildHoursInputOptions('period_stop_h',true,!isAdmin);
+    var minutesOptions=DetectionPeriodsController.buildMinutesInputOptions('period_stop_m',true,!isAdmin);
+    var content=buildInput($.i18n('hours'),0,hoursOptions);
+    content+='&nbsp;'+$.i18n('hours')+'&nbsp;';
+    content+=buildInput($.i18n('minutes'),0,minutesOptions);
+    content+='&nbsp;'+$.i18n('minutes');
+    $('#period_stop_div').html(content);
+</script>
+      </div>
+    {{/if}}
+    <div id="periods_values">
+         {{> detection_periods_values-partial}}
+    </div>
+    {{#if (isAdmin)}}
+        <div style="margin-top:16px;">
+            <button type="submit" id="btn_submit_periods" class="btn btn-primary mb-2" data-i18n="save"></button>
+            <button id="btn_cancel_periods" class="btn btn-primary mb-2" onclick="controller._cancel();" data-i18n="cancel"></button>
+        </div>
+      </form>
+    {{/if}}
+    </div>
+</div>
